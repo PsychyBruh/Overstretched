@@ -1,4 +1,4 @@
-using System;
+﻿using System;
 using System.Collections;
 using System.Collections.Generic;
 using System.IO;
@@ -32,6 +32,13 @@ namespace Overstretched
         }
 
         private static void Log(string msg) => Plugin.Log.LogInfo("[AUTOTEST] " + msg);
+
+        private static void Shot(string name)
+        {
+            var dir = Path.Combine(BepInEx.Paths.PluginPath, "Overstretched", "shots");
+            Directory.CreateDirectory(dir);
+            ScreenCapture.CaptureScreenshot(Path.Combine(dir, name + ".png"));
+        }
 
         private IEnumerator Guarded()
         {
@@ -124,7 +131,7 @@ namespace Overstretched
             yield return new WaitForSeconds(3f);
             var vanilla = RoundManager.Instance.SpawnedEnemies.FirstOrDefault(e => e != null && e.enemyType == vanillaType);
             Log($"menu: spawned vanilla {vanillaType?.enemyName}: {vanilla != null}");
-            menu.DebugShow(3, 0, 0);
+            menu.DebugShow(ModMenu.MonstersTab, ModMenu.ViewLive, 0);
             yield return new WaitForSeconds(2f);
             Settings.FrozenEnemies.Add(vanilla);
             var frozenAt = vanilla.transform.position;
@@ -143,7 +150,7 @@ namespace Overstretched
             Log($"menu: go to -> {menu.DebugStatus}; distance now {Vector3.Distance(vanilla.transform.position, me.transform.position):0.0}");
             for (int list = 0; list < 3; list++)
             {
-                menu.DebugShow(3, 1, list);
+                menu.DebugShow(ModMenu.MonstersTab, ModMenu.ViewTable, list);
                 yield return new WaitForSeconds(1.2f);
             }
             var level = StartOfRound.Instance.currentLevel;
@@ -163,7 +170,11 @@ namespace Overstretched
             var live = RoundManager.Instance.SpawnedEnemies.Where(e => e != null).ToList();
             Log($"menu: spawn all x3 requested {spawned}, alive {live.Count}: " +
                 string.Join(", ", live.GroupBy(e => e.enemyType.enemyName).Select(g => $"{g.Key} x{g.Count()}")));
-            yield return new WaitForSeconds(2f);
+            menu.DebugShow(ModMenu.MonstersTab, ModMenu.ViewLive, 0);
+            menu.DebugExpandAll();
+            yield return new WaitForSeconds(1f);
+            Shot("monsters_live");
+            yield return new WaitForSeconds(1f);
             foreach (var e in live) menu.DebugRemove(e);
             Settings.FreezeEnemies = false;
             yield return new WaitForSeconds(2f);
@@ -186,7 +197,124 @@ namespace Overstretched
             foreach (var e in outside) menu.DebugRemove(e);
             Settings.FreezeEnemies = false;
             yield return new WaitForSeconds(2f);
+
+            // ---- Menu screenshots, one per tab (outside, by the ship).
+            for (int t = 0; t < 12; t++)
+            {
+                menu.DebugShow(t, ModMenu.ViewLive, 0);
+                yield return new WaitForSeconds(0.8f);
+                Shot($"tab_{t:00}");
+                yield return new WaitForSeconds(0.3f);
+            }
+            menu.DebugShow(ModMenu.MonstersTab, ModMenu.ViewSpawn, 0);
+            yield return new WaitForSeconds(0.8f);
+            Shot("monsters_spawn");
+            menu.DebugShow(ModMenu.MonstersTab, ModMenu.ViewTable, 0);
+            yield return new WaitForSeconds(0.8f);
+            Shot("monsters_table");
             menu.DebugShow(-1, 0, 0);
+
+            // ---- No fall damage: drop from 45 m.
+            Log($"feature: health before fall test {me.health}, last damage {PlayerPatches.LastDamage}");
+            me.health = 100;
+            Settings.NoFallDamage = true;
+            me.TeleportPlayer(me.transform.position + Vector3.up * 45f);
+            yield return new WaitForSeconds(6f);
+            Log($"feature: fall from 45m with no fall damage -> health {me.health}, dead {me.isPlayerDead}, last damage {PlayerPatches.LastDamage}");
+            Settings.NoFallDamage = false;
+
+            // ---- Low gravity + earthquake (messages to every client).
+            Features.LowGravity(6f);
+            Features.Earthquake(2f);
+            me.TeleportPlayer(me.transform.position + Vector3.up * 20f);
+            yield return new WaitForSeconds(4f);
+            Log($"feature: low gravity active {Features.Instance.LowGravityActive}, after 20m drop health {me.health}, dead {me.isPlayerDead}");
+            yield return new WaitForSeconds(3f);
+
+            // ---- ESP + night vision on screen.
+            Settings.MonsterEsp = Settings.PlayerEsp = Settings.ScrapEsp = Settings.TrapEsp = true;
+            entrance.TeleportPlayer();
+            yield return new WaitForSeconds(2f);
+            Settings.NightVision = true;
+            yield return new WaitForSeconds(0.5f);
+            Log($"feature: night vision light on {me.nightVision.enabled}, intensity {me.nightVision.intensity:0.0}, range {me.nightVision.range:0.0}");
+            Shot("esp_nightvision");
+            yield return new WaitForSeconds(0.3f);
+            Settings.NightVision = false;
+            yield return new WaitForSeconds(0.5f);
+            Shot("esp_plain");
+            yield return new WaitForSeconds(0.3f);
+            Settings.MonsterEsp = Settings.PlayerEsp = Settings.ScrapEsp = Settings.TrapEsp = false;
+
+            // ---- Items: spawn with a custom value, then haul all scrap to the ship.
+            var gold = Features.AllItems().FirstOrDefault(i => i.isScrap);
+            var spawnedItem = Features.SpawnItem(gold, 123);
+            yield return new WaitForSeconds(1f);
+            Log($"feature: spawned item {gold?.itemName} value {(spawnedItem != null ? spawnedItem.scrapValue : -1)}");
+            int loose = Features.LooseScrap().Count;
+            Features.BringScrapToShip();
+            yield return new WaitForSeconds(2f);
+            Log($"feature: loose scrap before {loose}, after bring-to-ship {Features.LooseScrap().Count}, in ship {FindObjectsOfType<GrabbableObject>().Count(g => g.isInShipRoom && g.itemProperties.isScrap)}");
+
+            // ---- Doors and traps.
+            Features.Doors(MenuNet.DoorAction.Open);
+            yield return new WaitForSeconds(1f);
+            var doors = FindObjectsOfType<DoorLock>();
+            Log($"feature: doors open {doors.Count(d => d.GetComponent<AnimatedObjectTrigger>() != null && d.GetComponent<AnimatedObjectTrigger>().boolValue)}/{doors.Length}");
+            Features.Doors(MenuNet.DoorAction.Lock);
+            yield return new WaitForSeconds(1f);
+            Log($"feature: doors locked {doors.Count(d => d.isLocked)}/{doors.Length}");
+            Features.Doors(MenuNet.DoorAction.Unlock);
+            Features.Doors(MenuNet.DoorAction.Close);
+            Features.SetTraps(false);
+            yield return new WaitForSeconds(1f);
+            Log($"feature: turrets off {FindObjectsOfType<Turret>().Count(t => !t.turretActive)}/{FindObjectsOfType<Turret>().Length}, " +
+                $"mines off {FindObjectsOfType<Landmine>().Count(m => !Features.MineActive(m))}/{FindObjectsOfType<Landmine>().Length}");
+            Features.SetTraps(true);
+
+            // ---- Pet, size, invisibility.
+            NavMesh.SamplePosition(me.transform.position + me.transform.forward * 4f, out var phit, 10f, NavMesh.AllAreas);
+            RoundManager.Instance.SpawnEnemyGameObject(phit.position, 0f, -1, vanillaType);
+            yield return new WaitForSeconds(2f);
+            var pet = RoundManager.Instance.SpawnedEnemies.LastOrDefault(e => e != null && e.enemyType == vanillaType);
+            // A walker too, besides the ceiling-clinging Snare Flea.
+            var bugType = Resources.FindObjectsOfTypeAll<EnemyType>().FirstOrDefault(t => t.enemyName == "Hoarding bug");
+            RoundManager.Instance.SpawnEnemyGameObject(phit.position, 0f, -1, bugType);
+            yield return new WaitForSeconds(1.5f);
+            var bug = RoundManager.Instance.SpawnedEnemies.LastOrDefault(e => e != null && e.enemyType == bugType);
+            Features.SetPet(bug, true);
+            Features.SetPet(pet, true);
+            Features.SetSize(pet, 2f);
+            Settings.Invisible = true;
+            yield return new WaitForSeconds(0.5f);
+            Log($"feature: invisible -> targetable {pet.PlayerIsTargetable(me)}; pet size {pet.transform.localScale.x:0.00}");
+            Settings.Invisible = false;
+            yield return new WaitForSeconds(0.5f);
+            Log($"feature: visible again -> targetable {pet.PlayerIsTargetable(me)}");
+            var petStart = Vector3.Distance(pet.transform.position, me.transform.position);
+            if (NavMesh.SamplePosition(me.transform.position - me.transform.forward * 12f, out var away, 15f, NavMesh.AllAreas))
+                me.TeleportPlayer(away.position);
+            yield return new WaitForSeconds(5f);
+            Log($"feature: pet distance {petStart:0.0} -> after walking off {Vector3.Distance(pet.transform.position, me.transform.position):0.0}, " +
+                $"agent on {pet.agent.enabled} navmesh {pet.agent.isOnNavMesh}; bug pet distance {Vector3.Distance(bug.transform.position, me.transform.position):0.0}; player dead {me.isPlayerDead}");
+            menu.DebugRemove(pet);
+            menu.DebugRemove(bug);
+
+            // ---- Chaos: horde (frozen), scatter, lights out.
+            Settings.FreezeEnemies = true;
+            Features.Horde(4);
+            yield return new WaitForSeconds(2f);
+            Log($"feature: horde -> alive {RoundManager.Instance.SpawnedEnemies.Count(e => e != null)}");
+            foreach (var e in RoundManager.Instance.SpawnedEnemies.Where(e => e != null).ToList()) menu.DebugRemove(e);
+            Settings.FreezeEnemies = false;
+            var before = me.transform.position;
+            Features.Scatter();
+            yield return new WaitForSeconds(1f);
+            Log($"feature: scatter moved {(me.transform.position - before).magnitude:0}m");
+            Features.LightsOut(2f);
+            yield return new WaitForSeconds(3.5f);
+            Log($"feature: lights out finished, menu status: {menu.DebugStatus}");
+
             entrance.TeleportPlayer(); // back inside near the entrance for the Stretched test
             yield return new WaitForSeconds(2f);
 
@@ -257,6 +385,9 @@ namespace Overstretched
             ai.DebugKill(me);
             foreach (var s in Watch("kill", 6f)) yield return s;
             Log($"player dead after kill: {me.isPlayerDead}; radar redirect: {(me.redirectToEnemy == ai)}");
+            Features.ReviveAll();
+            yield return new WaitForSeconds(3f);
+            Log($"feature: revive all -> dead {me.isPlayerDead}, health {me.health}, on ship {me.isInHangarShipRoom}");
             Log("PASSED script");
         }
     }

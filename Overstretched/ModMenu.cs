@@ -4,42 +4,67 @@ using GameNetcodeStuff;
 using Unity.Netcode;
 using UnityEngine;
 using UnityEngine.InputSystem;
+using static Overstretched.UiKit;
 
 namespace Overstretched
 {
     public class ModMenu : MonoBehaviour
     {
-        private static readonly string[] Tabs = { "Player", "Economy", "World", "Monsters", "The Stretched" };
+        private static readonly (string icon, string name, string blurb)[] Tabs =
+        {
+            ("☻", "Player", "Movement, survival and cheats for you"),
+            ("◉", "Vision", "Night vision and see-through-walls ESP"),
+            ("➜", "Teleport", "Jump to the ship, exits, players or loot"),
+            ("✚", "Crew", "Revive, heal and move your friends"),
+            ("◆", "Items", "Spawn any item and haul scrap"),
+            ("☠", "Monsters", "Spawn, freeze, tame and resize monsters"),
+            ("☀", "World", "Time, lights, doors, traps and weather"),
+            ("✈", "Ship", "Lever, free moons, upgrades and store"),
+            ("$", "Economy", "Credits, quota and scrap value"),
+            ("⚡", "Chaos", "Hordes, blackouts, earthquakes and more"),
+            ("⚠", "The Stretched", "The new monster: live status, preview, tuning"),
+            ("⚙", "Settings", "Menu size, look and saved settings"),
+        };
+
+        internal const int MonstersTab = 5;
+        internal const int ViewLive = 0, ViewSpawn = 1, ViewTable = 2;
+
+        private const float SidebarWidth = 196f, HeaderHeight = 66f;
 
         private bool open;
+        private float openAnim;
         private int tab;
-        private Rect window = new Rect(40, 40, 560, 640);
-        private Vector2 scroll;
-        private string creditsInput = "1000";
-        private string quotaInput = "130";
-        private float baseSpeed = -1f, baseJump = -1f;
-        private PlayerControllerB trackedPlayer;
+        private Rect window = new Rect(60, 50, 920, 660);
+        private readonly Vector2[] scrolls = new Vector2[Tabs.Length];
+        private bool resizing;
+        private string toast = "";
+        private float toastTime = -10f;
+        private string creditsInput = "1000", quotaInput = "130";
         private List<EnemyType> enemyTypes = new List<EnemyType>();
-        private string status = "";
+        private GUISkin skin;
 
         public static ModMenu Instance { get; private set; } // hidden object: FindObjectOfType can't see it
+        internal static bool IsOpen => Instance != null && Instance.open;
 
-        private void Awake() => Instance = this;
+        private static PlayerControllerB Local => Features.Local;
+        private static bool IsHost => Features.IsHost;
 
-        private static PlayerControllerB Local =>
-            StartOfRound.Instance != null ? StartOfRound.Instance.localPlayerController : null;
+        private void Awake()
+        {
+            Instance = this;
+            Features.Notify = Toast;
+        }
 
-        private static bool IsHost =>
-            NetworkManager.Singleton != null && NetworkManager.Singleton.IsHost;
+        private void Toast(string message)
+        {
+            toast = message;
+            toastTime = Time.unscaledTime;
+        }
 
         private void Update()
         {
             if (Keyboard.current != null && Keyboard.current.f8Key.wasPressedThisFrame)
                 SetOpen(!open);
-
-            ApplyPlayer();
-            ApplyWorld();
-            if (StartOfRound.Instance != null && !StartOfRound.Instance.inShipPhase) VoiceThief.Tick();
         }
 
         private void SetOpen(bool value)
@@ -51,47 +76,7 @@ namespace Overstretched
             if (player != null && player.quickMenuManager != null)
                 player.quickMenuManager.isMenuOpen = open;
             if (open) RefreshEnemyTypes();
-        }
-
-        private void ApplyPlayer()
-        {
-            var p = Local;
-            if (p == null) return;
-            if (p != trackedPlayer)
-            {
-                trackedPlayer = p;
-                baseSpeed = p.movementSpeed;
-                baseJump = p.jumpForce;
-            }
-
-            p.movementSpeed = baseSpeed * Settings.SpeedMultiplier;
-            p.jumpForce = baseJump * Settings.JumpMultiplier;
-            if (Settings.InfiniteSprint) p.sprintMeter = 1f;
-            if (Settings.GodMode) p.health = 100;
-
-            p.thisController.enabled = !Settings.NoClip || p.isPlayerDead;
-            if (Settings.NoClip && !p.isPlayerDead && !open && Keyboard.current != null)
-            {
-                var kb = Keyboard.current;
-                var cam = p.gameplayCamera.transform;
-                var dir = Vector3.zero;
-                if (kb.wKey.isPressed) dir += cam.forward;
-                if (kb.sKey.isPressed) dir -= cam.forward;
-                if (kb.dKey.isPressed) dir += cam.right;
-                if (kb.aKey.isPressed) dir -= cam.right;
-                if (kb.spaceKey.isPressed) dir += Vector3.up;
-                if (kb.leftCtrlKey.isPressed) dir -= Vector3.up;
-                float speed = Settings.NoClipSpeed * (kb.leftShiftKey.isPressed ? 2.5f : 1f);
-                p.transform.position += dir.normalized * speed * Time.deltaTime;
-                p.fallValue = 0f;
-                p.fallValueUncapped = 0f;
-            }
-        }
-
-        private void ApplyWorld()
-        {
-            if (!IsHost || TimeOfDay.Instance == null) return;
-            TimeOfDay.Instance.globalTimeSpeedMultiplier = Settings.TimeSpeed;
+            else Settings.Save();
         }
 
         private void RefreshEnemyTypes()
@@ -110,19 +95,7 @@ namespace Overstretched
                 .OrderBy(DisplayName).ToList();
         }
 
-        // Internal names that don't match what players call them in game.
-        private static readonly Dictionary<string, string> FriendlyNames = new Dictionary<string, string>
-        {
-            { "RadMech", "Old Bird" }, { "Flowerman", "Bracken" }, { "Spring", "Coil-Head" }, { "Crawler", "Thumper" },
-            { "Centipede", "Snare Flea" }, { "Puffer", "Spore Lizard" }, { "Blob", "Hygrodere" }, { "Girl", "Ghost Girl" },
-            { "MouthDog", "Eyeless Dog" }, { "ForestGiant", "Forest Keeper" }, { "Red Locust Bees", "Circuit Bees" },
-            { "Docile Locust Bees", "Roaming Locusts" }, { "Hoarding bug", "Hoarder Bug" }, { "SandSpider", "Bunker Spider" },
-            { "ClaySurgeon", "Barber" }, { "Bush Wolf", "Kidnapper Fox" }, { "CaveDweller", "Maneater" },
-            { "GiantKiwi", "Giant Sapsucker" }, { "SandWorm", "Earth Leviathan" },
-        };
-
-        private static string DisplayName(EnemyType t) =>
-            FriendlyNames.TryGetValue(t.enemyName, out var friendly) ? friendly : t.enemyName;
+        private static string DisplayName(EnemyType t) => Features.DisplayName(t);
 
         /// <summary>
         /// Enemies like the Old Bird only exist attached to a nest: without one the game deletes them on the host
@@ -144,218 +117,620 @@ namespace Overstretched
                 .Select(n => new NetworkObjectReference(n.GetComponentInChildren<NetworkObject>())).ToArray());
         }
 
+        // ================================================================== window
+
         private void OnGUI()
         {
-            if (!open) return;
-            GUI.backgroundColor = new Color(0.1f, 0.1f, 0.1f, 0.95f);
-            GUI.skin.label.richText = true;
-            GUI.skin.toggle.richText = true;
-            GUI.skin.button.richText = true;
-            window = GUI.Window(0x4C50, window, DrawWindow, $"Overstretched  (F8)   {(IsHost ? "HOST" : "CLIENT")}");
+            openAnim = Mathf.MoveTowards(openAnim, open ? 1f : 0f, Time.unscaledDeltaTime * 6f);
+            if (openAnim <= 0f) return;
+            Init();
+            BuildSkin();
+
+            var oldSkin = GUI.skin;
+            var oldMatrix = GUI.matrix;
+            var oldColor = GUI.color;
+            GUI.skin = skin;
+            float scale = Mathf.Clamp(Settings.UiScale, 0.6f, 2f);
+            GUI.matrix = Matrix4x4.Scale(new Vector3(scale, scale, 1f));
+
+            // Keep it on screen whatever the resolution and scale.
+            float sw = Screen.width / scale, sh = Screen.height / scale;
+            window.width = Mathf.Clamp(window.width, 760f, Mathf.Max(760f, sw - 20f));
+            window.height = Mathf.Clamp(window.height, 540f, Mathf.Max(540f, sh - 20f));
+            window.x = Mathf.Clamp(window.x, 0f, Mathf.Max(0f, sw - window.width));
+            window.y = Mathf.Clamp(window.y, 0f, Mathf.Max(0f, sh - window.height));
+
+            float ease = 1f - Mathf.Pow(1f - openAnim, 3f);
+            GUI.color = new Color(1f, 1f, 1f, ease);
+            GUI.enabled = open;
+            var draw = window;
+            draw.y += (1f - ease) * 22f;
+            // Soft drop shadow.
+            for (int i = 1; i <= 4; i++)
+                RoundRect(new Rect(draw.x - i * 3f, draw.y - i * 2f, draw.width + i * 6f, draw.height + i * 6f), new Color(0f, 0f, 0f, 0.07f), 14f + i * 3f);
+            var moved = GUI.Window(0x4C50, draw, DrawWindow, GUIContent.none, GUIStyle.none);
+            window.position += moved.position - draw.position;
+
+            GUI.enabled = true;
+            GUI.color = oldColor;
+            GUI.matrix = oldMatrix;
+            GUI.skin = oldSkin;
+        }
+
+        private void BuildSkin()
+        {
+            if (skin != null) return;
+            skin = Instantiate(GUI.skin);
+            skin.hideFlags = HideFlags.HideAndDontSave;
+            var track = new Texture2D(1, 1) { hideFlags = HideFlags.HideAndDontSave };
+            track.SetPixel(0, 0, new Color(1f, 1f, 1f, 0.04f));
+            track.Apply();
+            var thumb = new Texture2D(1, 1) { hideFlags = HideFlags.HideAndDontSave };
+            thumb.SetPixel(0, 0, Alpha(Faint, 0.9f));
+            thumb.Apply();
+            skin.verticalScrollbar = new GUIStyle { normal = { background = track }, fixedWidth = 6f, margin = new RectOffset(6, 0, 0, 0) };
+            skin.verticalScrollbarThumb = new GUIStyle { normal = { background = thumb }, fixedWidth = 6f };
+            skin.verticalScrollbarUpButton = new GUIStyle();
+            skin.verticalScrollbarDownButton = new GUIStyle();
+            skin.horizontalScrollbar = new GUIStyle();
+            skin.horizontalScrollbarThumb = new GUIStyle();
+            skin.horizontalScrollbarLeftButton = new GUIStyle();
+            skin.horizontalScrollbarRightButton = new GUIStyle();
+            skin.scrollView = new GUIStyle();
+            skin.label = new GUIStyle(UiKit.Label);
+            skin.textField = new GUIStyle(UiKit.Input);
+            skin.settings.cursorColor = Accent;
+            skin.settings.selectionColor = Alpha(Accent, 0.4f);
         }
 
         private void DrawWindow(int id)
         {
-            tab = GUILayout.Toolbar(tab, Tabs);
-            scroll = GUILayout.BeginScrollView(scroll);
+            float w = window.width, h = window.height;
+            RoundRect(new Rect(0, 0, w, h), Alpha(Bg, Settings.UiOpacity), 14f);
+            // Sidebar: rounded on the left only.
+            RoundRect(new Rect(0, 0, SidebarWidth, h), Alpha(UiKit.Sidebar, Settings.UiOpacity), 14f);
+            Fill(new Rect(SidebarWidth - 14f, 0, 14f, h), Alpha(UiKit.Sidebar, Settings.UiOpacity));
+            Fill(new Rect(SidebarWidth, 0, 1f, h), Line);
+            RoundOutline(new Rect(0, 0, w, h), Hex(0x262A35), 14f);
+
+            DrawSidebar(h);
+
+            // Content header.
+            var info = Tabs[tab];
+            GUI.Label(new Rect(SidebarWidth + 22f, 14f, 400f, 28f), info.name, Title);
+            GUI.Label(new Rect(SidebarWidth + 22f, 40f, 520f, 18f), info.blurb, LabelSmall);
+            var roleRect = new Rect(w - 150f, 20f, 82f, 24f);
+            BadgeAt(roleRect, IsHost ? "HOST" : NetworkManager.Singleton != null && NetworkManager.Singleton.IsClient ? "CLIENT" : "OFFLINE",
+                    IsHost ? Green : Blue);
+            if (ButtonAt(new Rect(w - 56f, 18f, 34f, 28f), "✕", Kind.Ghost)) SetOpen(false);
+            Fill(new Rect(SidebarWidth + 1f, HeaderHeight, w - SidebarWidth - 1f, 1f), Line);
+
+            var content = new Rect(SidebarWidth + 18f, HeaderHeight + 14f, w - SidebarWidth - 32f, h - HeaderHeight - 24f);
+            UiKit.ContentWidth = content.width - 12f - 28f;
+            GUILayout.BeginArea(content);
+            try { DrawTab(); }
+            catch (System.Exception e)
+            {
+                // A layout mismatch would otherwise spam errors every frame; show it and carry on.
+                if (Event.current.type == EventType.Repaint) Plugin.Log.LogError($"Menu tab {Tabs[tab].name}: {e}");
+            }
+            GUILayout.EndArea();
+
+            DrawToast(content);
+            DrawResizeGrip(w, h);
+            GUI.DragWindow(new Rect(0, 0, w, HeaderHeight));
+        }
+
+        private void DrawSidebar(float h)
+        {
+            // Logo.
+            GUI.Label(new Rect(20f, 16f, 170f, 26f), $"<color={Rich(Accent)}>OVER</color>STRETCHED", Title);
+            GUI.Label(new Rect(21f, 41f, 170f, 16f), $"v{Plugin.Version}  ·  F8 to toggle", LabelSmall);
+
+            float y = 78f;
+            float rowH = Mathf.Clamp((h - 78f - 56f) / Tabs.Length, 30f, 38f);
+            float sel = Anim(0x51DE, tab, 16f);
+            RoundRect(new Rect(10f, y + sel * rowH + 2f, SidebarWidth - 20f, rowH - 4f), Alpha(Accent, 0.14f), 8f);
+            RoundRect(new Rect(10f, y + sel * rowH + 8f, 3f, rowH - 16f), Accent, 1.5f);
+            for (int i = 0; i < Tabs.Length; i++)
+            {
+                var r = new Rect(10f, y + i * rowH, SidebarWidth - 20f, rowH);
+                bool hover = r.Contains(Event.current.mousePosition);
+                float hv = Anim(0x7AB0 + i, hover && i != tab ? 1f : 0f);
+                RoundRect(new Rect(r.x, r.y + 2f, r.width, r.height - 4f), Alpha(Color.white, 0.04f * hv), 8f);
+                var color = i == tab ? Color.white : Color.Lerp(Dim, Text, hv);
+                var iconStyle = i == tab ? LabelBold : UiKit.Label;
+                var old = iconStyle.normal.textColor;
+                iconStyle.normal.textColor = i == tab ? Accent : color;
+                GUI.Label(new Rect(r.x + 14f + hv * 2f, r.y, 22f, r.height), Tabs[i].icon, iconStyle);
+                iconStyle.normal.textColor = color;
+                GUI.Label(new Rect(r.x + 40f + hv * 2f, r.y, r.width - 44f, r.height), Tabs[i].name, iconStyle);
+                iconStyle.normal.textColor = old;
+                if (GUI.Button(r, GUIContent.none, GUIStyle.none)) tab = i;
+            }
+
+            var me = Local;
+            string who = me != null ? me.playerUsername : "Not in a game";
+            GUI.Label(new Rect(20f, h - 44f, SidebarWidth - 30f, 18f), who, LabelBold);
+            string where = me == null ? "Main menu" : me.isPlayerDead ? "Dead" : me.isInHangarShipRoom ? "On the ship" : me.isInsideFactory ? "Inside the facility" : "Outside";
+            GUI.Label(new Rect(20f, h - 26f, SidebarWidth - 30f, 16f), where, LabelSmall);
+        }
+
+        private void DrawToast(Rect content)
+        {
+            float age = Time.unscaledTime - toastTime;
+            if (string.IsNullOrEmpty(toast) || age > 3.5f) return;
+            float a = Mathf.Clamp01(age * 8f) * Mathf.Clamp01((3.5f - age) * 2f);
+            var size = UiKit.Label.CalcSize(new GUIContent(toast));
+            float width = Mathf.Min(size.x + 46f, content.width);
+            var r = new Rect(content.x + (content.width - width) / 2f, content.yMax - 44f + (1f - a) * 12f, width, 36f);
+            RoundRect(new Rect(r.x, r.y + 3f, r.width, r.height), new Color(0f, 0f, 0f, 0.35f * a), 10f);
+            RoundRect(r, Alpha(Hex(0x232733), a), 10f);
+            RoundOutline(r, Alpha(Accent, 0.7f * a), 10f);
+            RoundRect(new Rect(r.x + 12f, r.center.y - 4f, 8f, 8f), Alpha(Accent, a), 4f);
+            var old = GUI.color;
+            GUI.color = new Color(1f, 1f, 1f, a * old.a);
+            GUI.Label(new Rect(r.x + 28f, r.y, r.width - 34f, r.height), toast, UiKit.Label);
+            GUI.color = old;
+        }
+
+        private void DrawResizeGrip(float w, float h)
+        {
+            var grip = new Rect(w - 20f, h - 20f, 18f, 18f);
+            var e = Event.current;
+            bool hover = grip.Contains(e.mousePosition);
+            for (int i = 0; i < 3; i++)
+                RoundRect(new Rect(w - 8f - i * 5f, h - 8f, 3f, 3f), hover || resizing ? Accent : Faint, 1.5f);
+            for (int i = 0; i < 2; i++)
+                RoundRect(new Rect(w - 8f - i * 5f, h - 13f, 3f, 3f), hover || resizing ? Accent : Faint, 1.5f);
+            RoundRect(new Rect(w - 8f, h - 18f, 3f, 3f), hover || resizing ? Accent : Faint, 1.5f);
+            if (e.type == EventType.MouseDown && hover) { resizing = true; e.Use(); }
+            else if (e.type == EventType.MouseDrag && resizing) { window.width += e.delta.x; window.height += e.delta.y; e.Use(); }
+            else if (e.rawType == EventType.MouseUp) resizing = false;
+        }
+
+        private void DrawTab()
+        {
             switch (tab)
             {
-                case 0: DrawPlayer(); break;
-                case 1: DrawEconomy(); break;
-                case 2: DrawWorld(); break;
-                case 3: DrawMonsters(); break;
-                case 4: DrawStretched(); break;
+                case 0: Scroll(DrawPlayer); break;
+                case 1: Scroll(DrawVision); break;
+                case 2: Scroll(DrawTeleport); break;
+                case 3: Scroll(DrawCrew); break;
+                case 4: DrawItems(); break;
+                case 5: DrawMonsters(); break;
+                case 6: Scroll(DrawWorld); break;
+                case 7: Scroll(DrawShip); break;
+                case 8: Scroll(DrawEconomy); break;
+                case 9: Scroll(DrawChaos); break;
+                case 10: Scroll(DrawStretched); break;
+                case 11: Scroll(DrawSettings); break;
             }
-            GUILayout.EndScrollView();
-            if (!string.IsNullOrEmpty(status)) GUILayout.Label(status);
-            GUI.DragWindow();
         }
+
+        private void Scroll(System.Action body)
+        {
+            scrolls[tab] = GUILayout.BeginScrollView(scrolls[tab]);
+            body();
+            GUILayout.Space(50); // room for the toast
+            GUILayout.EndScrollView();
+        }
+
+        private static bool HostGate(string what = "Only the host can use these.")
+        {
+            if (IsHost) return true;
+            Callout(what, Yellow);
+            return false;
+        }
+
+        private static bool InGameGate()
+        {
+            if (Local != null) return true;
+            Callout("Join or host a game first.", Blue);
+            return false;
+        }
+
+        private static void Row(System.Action body)
+        {
+            GUILayout.BeginHorizontal();
+            body();
+            GUILayout.EndHorizontal();
+        }
+
+        // ================================================================== Player
 
         private void DrawPlayer()
         {
+            BeginCard("Movement", null, Accent);
             Settings.SpeedMultiplier = Slider("Move speed", Settings.SpeedMultiplier, 0.25f, 5f);
             Settings.JumpMultiplier = Slider("Jump height", Settings.JumpMultiplier, 0.25f, 5f);
-            Settings.InfiniteSprint = GUILayout.Toggle(Settings.InfiniteSprint, " Infinite sprint");
-            Settings.GodMode = GUILayout.Toggle(Settings.GodMode, " God mode");
-            Settings.NoFallDamage = GUILayout.Toggle(Settings.NoFallDamage, " No fall damage");
-            Settings.NoClip = GUILayout.Toggle(Settings.NoClip, " Noclip (WASD, Space up, Ctrl down, Shift fast)");
-            if (Settings.NoClip) Settings.NoClipSpeed = Slider("Noclip speed", Settings.NoClipSpeed, 2f, 50f);
+            Settings.NoClip = Switch("Noclip", Settings.NoClip, "Fly through walls: WASD, Space up, Ctrl down, Shift faster");
+            if (Settings.NoClip) Settings.NoClipSpeed = Slider("Noclip speed", Settings.NoClipSpeed, 2f, 50f, "0", " m/s");
+            EndCard();
+
+            BeginCard("Survival", null, Green);
+            Settings.GodMode = Switch("God mode", Settings.GodMode, "Nothing can hurt or kill you", Green);
+            Settings.NoFallDamage = Switch("No fall damage", Settings.NoFallDamage, "Land from any height", Green);
+            Settings.Invisible = Switch("Invisible to monsters", Settings.Invisible, "They can't see, chase or touch you (the host needs the mod)", Green);
+            EndCard();
+
+            BeginCard("Endless", null, Cyan);
+            Settings.InfiniteSprint = Switch("Infinite stamina", Settings.InfiniteSprint, "Sprint forever", Cyan);
+            Settings.InfiniteBattery = Switch("Infinite battery", Settings.InfiniteBattery, "Flashlights, walkies, jetpacks... never run out", Cyan);
+            Settings.InfiniteItemUses = Switch("Infinite item uses", Settings.InfiniteItemUses, "Spray paint, TZP and shotgun shells never run out", Cyan);
+            Settings.SuperStrength = Switch("Super strength", Settings.SuperStrength, "Carry anything with no weight slowdown", Cyan);
+            EndCard();
 
             var p = Local;
-            if (p != null && GUILayout.Button("Heal to full"))
+            if (p == null) return;
+            BeginCard("Quick actions");
+            Row(() =>
             {
-                p.health = 100;
-                p.criticallyInjured = false;
-                p.bleedingHeavily = false;
-            }
-            if (p != null && GUILayout.Button("Teleport to ship"))
-            {
-                p.TeleportPlayer(StartOfRound.Instance.playerSpawnPositions[0].position);
-                p.isInsideFactory = false;
-                p.isInHangarShipRoom = true;
-                p.isInElevator = true;
-            }
+                if (Button("Heal to full", Kind.Good))
+                {
+                    p.health = 100;
+                    p.criticallyInjured = false;
+                    p.bleedingHeavily = false;
+                    HUDManager.Instance.UpdateHealthUI(100, hurtPlayer: false);
+                    Toast("Healed to full");
+                }
+                if (Button("Teleport to ship")) Features.TeleportToShip();
+            });
+            EndCard();
         }
 
-        private void DrawEconomy()
+        // ================================================================== Vision
+
+        private void DrawVision()
         {
-            var terminal = Object.FindObjectOfType<Terminal>();
-            var time = TimeOfDay.Instance;
-            GUILayout.Label($"Credits: {(terminal != null ? terminal.groupCredits.ToString() : "-")}");
-            GUILayout.BeginHorizontal();
-            creditsInput = GUILayout.TextField(creditsInput, GUILayout.Width(120));
-            if (GUILayout.Button("Set credits") && terminal != null && int.TryParse(creditsInput, out int credits))
-            {
-                terminal.groupCredits = credits;
-                terminal.SyncGroupCreditsServerRpc(credits, terminal.numberOfItemsInDropship);
-                status = $"Credits set to {credits}";
-            }
-            GUILayout.EndHorizontal();
+            BeginCard("Night vision", null, Green);
+            Settings.NightVision = Switch("Night vision", Settings.NightVision, "Light up dark rooms around you (only you see it)", Green);
+            if (Settings.NightVision) Settings.NightVisionStrength = Slider("Brightness", Settings.NightVisionStrength, 0f, 1f, "0%", "");
+            EndCard();
 
-            if (time == null) return;
-            GUILayout.Space(8);
-            GUILayout.Label($"Quota: {time.quotaFulfilled} / {time.profitQuota}   Days left: {time.daysUntilDeadline}");
-            if (!HostOnly()) return;
-            GUILayout.BeginHorizontal();
-            quotaInput = GUILayout.TextField(quotaInput, GUILayout.Width(120));
-            if (GUILayout.Button("Set quota") && int.TryParse(quotaInput, out int quota))
+            BeginCard("ESP", "see through walls", Red);
+            Settings.MonsterEsp = Switch("Monsters", Settings.MonsterEsp, "Name and distance of every monster", Red);
+            Settings.PlayerEsp = Switch("Players", Settings.PlayerEsp, "Your crew with their health", Blue);
+            Settings.ScrapEsp = Switch("Scrap", Settings.ScrapEsp, "Loot and its value", Yellow);
+            if (Settings.ScrapEsp) Settings.ScrapEspMinValue = (int)Slider("Only scrap worth at least", Settings.ScrapEspMinValue, 0, 150, "0", " $");
+            Settings.TrapEsp = Switch("Traps", Settings.TrapEsp, "Mines, turrets and spike traps (grey = disabled)", Orange);
+            Settings.EspRange = Slider("Range", Settings.EspRange, 10f, 400f, "0", " m");
+            GUILayout.Space(4);
+            Row(() =>
             {
-                time.profitQuota = quota;
-                time.SyncNewProfitQuotaClientRpc(quota, 0, time.timesFulfilledQuota);
-                status = $"Quota set to {quota}";
-            }
-            GUILayout.EndHorizontal();
-            if (GUILayout.Button("Mark quota as met"))
-            {
-                time.quotaFulfilled = time.profitQuota;
-                status = "Quota marked as met";
-            }
-
-            GUILayout.Space(8);
-            Settings.ScrapValueMultiplier = Slider("Scrap value (next moon)", Settings.ScrapValueMultiplier, 0.1f, 10f);
-            Settings.ScrapAmountMultiplier = Slider("Scrap amount (next moon)", Settings.ScrapAmountMultiplier, 0.1f, 5f);
+                Badge("monster", Red); GUILayout.Space(4); Badge("frozen", Cyan); GUILayout.Space(4); Badge("pet", Green);
+                GUILayout.Space(4); Badge("player", Blue); GUILayout.Space(4); Badge("scrap", Yellow); GUILayout.Space(4); Badge("trap", Orange);
+                GUILayout.FlexibleSpace();
+            });
+            EndCard();
         }
 
-        private void DrawWorld()
+        // ================================================================== Teleport
+
+        private float nextPlaceScan;
+        private List<EntranceTeleport> entrances = new List<EntranceTeleport>();
+        private List<GrabbableObject> scrapList = new List<GrabbableObject>();
+
+        private void ScanPlaces()
         {
-            if (!HostOnly()) return;
-            Settings.TimeSpeed = Slider("Time speed", Settings.TimeSpeed, 0f, 10f);
-            Settings.FreezeTime = GUILayout.Toggle(Settings.FreezeTime, " Freeze clock");
-
-            var rm = RoundManager.Instance;
-            if (rm == null) return;
-            GUILayout.BeginHorizontal();
-            if (GUILayout.Button("Lights ON")) rm.SwitchPower(true);
-            if (GUILayout.Button("Lights OFF")) rm.SwitchPower(false);
-            if (GUILayout.Button("Flicker")) rm.FlickerLights(true, false);
-            GUILayout.EndHorizontal();
-
-            var level = StartOfRound.Instance != null ? StartOfRound.Instance.currentLevel : null;
-            if (level == null) return;
-            GUILayout.Label($"Weather on {level.PlanetName}: {level.currentWeather} (applies when you land)");
-            GUILayout.BeginHorizontal();
-            foreach (LevelWeatherType w in System.Enum.GetValues(typeof(LevelWeatherType)))
-                if (GUILayout.Button(w.ToString())) level.currentWeather = w;
-            GUILayout.EndHorizontal();
+            if (Time.unscaledTime < nextPlaceScan) return;
+            nextPlaceScan = Time.unscaledTime + 1f;
+            entrances = FindObjectsOfType<EntranceTeleport>().Where(e => e.entrancePoint != null)
+                .OrderBy(e => e.entranceId).ThenBy(e => !e.isEntranceToBuilding).ToList();
+            scrapList = FindObjectsOfType<GrabbableObject>()
+                .Where(g => g.itemProperties != null && g.itemProperties.isScrap && !g.isHeld && !g.isInShipRoom && !(g is RagdollGrabbableObject))
+                .ToList();
         }
 
-        // ------------------------------------------------------------------ Monsters tab
+        private void DrawTeleport()
+        {
+            if (!InGameGate()) return;
+            ScanPlaces();
+            var me = Local;
 
-        private static readonly string[] MonsterViews = { "Spawned now", "Spawn table" };
+            BeginCard("Places", null, Accent);
+            if (Button("✈  Ship", Kind.Accent, GUILayout.Height(36))) Features.TeleportToShip();
+            if (entrances.Count == 0) Note("Exits show up once you've landed.");
+            else
+            {
+                int pick = ButtonGrid(entrances.Select(Features.EntranceName).ToList(), 2);
+                if (pick >= 0) Features.TeleportToEntrance(entrances[pick]);
+            }
+            EndCard();
+
+            BeginCard("Players", null, Blue);
+            var others = StartOfRound.Instance.allPlayerScripts.Where(p => p != me && p.isPlayerControlled && !p.isPlayerDead).ToList();
+            if (others.Count == 0) Note("Nobody else is alive in the game.");
+            foreach (var p in others)
+                Row(() =>
+                {
+                    GUILayout.Label(p.playerUsername, UiKit.Label, GUILayout.Width(UiKit.ContentWidth * 0.4f));
+                    GUILayout.Label($"{Vector3.Distance(me.transform.position, p.transform.position):0} m", LabelSmall, GUILayout.Width(60));
+                    GUILayout.FlexibleSpace();
+                    if (Button("Go to", Kind.Normal, GUILayout.Width(90), GUILayout.Height(28))) Features.TeleportToPlayer(p);
+                    if (IsHost && Button("Bring here", Kind.Ghost, GUILayout.Width(100), GUILayout.Height(28))) Features.BringPlayer(p);
+                });
+            EndCard();
+
+            BeginCard("Scrap", $"{scrapList.Count} loose · ${scrapList.Sum(s => s.scrapValue)}", Yellow);
+            if (scrapList.Count == 0) Note("No loose scrap around.");
+            foreach (var s in scrapList.Where(s => s != null).OrderByDescending(s => s.scrapValue).Take(25))
+                Row(() =>
+                {
+                    GUILayout.Label(s.itemProperties.itemName, UiKit.Label, GUILayout.Width(UiKit.ContentWidth * 0.42f));
+                    GUILayout.Label($"<color={Rich(Gold)}>${s.scrapValue}</color>", UiKit.Label, GUILayout.Width(60));
+                    GUILayout.Label($"{Vector3.Distance(me.transform.position, s.transform.position):0} m", LabelSmall, GUILayout.Width(60));
+                    GUILayout.FlexibleSpace();
+                    if (Button("Go to", Kind.Normal, GUILayout.Width(90), GUILayout.Height(28)))
+                        Features.TeleportToObject(s.transform, s.isInFactory, s.itemProperties.itemName);
+                });
+            EndCard();
+        }
+
+        // ================================================================== Crew
+
+        private void DrawCrew()
+        {
+            if (!InGameGate()) return;
+            var me = Local;
+            var players = StartOfRound.Instance.allPlayerScripts.Where(p => p.isPlayerControlled || p.isPlayerDead).ToList();
+
+            if (HostGate("Only the host can revive, heal or move other players. You can still teleport to them."))
+            {
+                BeginCard("Everyone", null, Green);
+                Row(() =>
+                {
+                    int dead = players.Count(p => p.isPlayerDead);
+                    if (Button(dead > 0 ? $"✚  Revive all dead ({dead})" : "✚  Revive all dead", Kind.Accent, GUILayout.Height(38))) Features.ReviveAll();
+                    if (Button("Heal everyone", Kind.Good, GUILayout.Height(38))) Features.Heal(null);
+                });
+                Note("Revived players wake up on the ship, like at the end of a day.");
+                EndCard();
+            }
+
+            BeginCard("Crew", $"{players.Count(p => !p.isPlayerDead)} alive · {players.Count(p => p.isPlayerDead)} dead", Blue);
+            foreach (var p in players)
+            {
+                GUILayout.BeginHorizontal();
+                GUILayout.BeginVertical(GUILayout.Width(UiKit.ContentWidth * 0.45f));
+                GUILayout.Label(p.playerUsername + (p == me ? $"  <color={Rich(Dim)}>(you)</color>" : ""), LabelBold);
+                string where = p.isPlayerDead ? $"<color={Rich(Red)}>dead</color>"
+                    : p.isInHangarShipRoom ? "on the ship" : p.isInsideFactory ? "inside" : "outside";
+                GUILayout.Label(where, LabelSmall);
+                GUILayout.EndVertical();
+                // Health bar.
+                var bar = GUILayoutUtility.GetRect(90f, 34f, GUILayout.Width(90f));
+                var track = new Rect(bar.x, bar.center.y - 4f, bar.width, 8f);
+                RoundRect(track, Hex(0x2B2F3B), 4f);
+                float hp = p.isPlayerDead ? 0f : Mathf.Clamp01(p.health / 100f);
+                RoundRect(new Rect(track.x, track.y, Mathf.Max(8f, track.width * hp), track.height), hp > 0.5f ? Green : hp > 0.2f ? Yellow : Red, 4f);
+                GUILayout.Space(8);
+                GUILayout.Label(p.isPlayerDead ? "" : p.health + "hp", LabelSmall, GUILayout.Width(44));
+                GUILayout.FlexibleSpace();
+                if (p != me && !p.isPlayerDead && Button("Go to", Kind.Normal, GUILayout.Width(80), GUILayout.Height(28))) Features.TeleportToPlayer(p);
+                if (IsHost && p != me && !p.isPlayerDead && Button("Bring", Kind.Ghost, GUILayout.Width(80), GUILayout.Height(28))) Features.BringPlayer(p);
+                if (IsHost && !p.isPlayerDead && Button("Heal", Kind.Good, GUILayout.Width(70), GUILayout.Height(28))) Features.Heal(p);
+                GUILayout.EndHorizontal();
+                GUILayout.Space(4);
+            }
+            EndCard();
+        }
+
+        // ================================================================== Items
+
+        private static readonly string[] ItemFilters = { "All", "Scrap", "Tools" };
+        private int itemFilter;
+        private string itemSearch = "", itemValue = "";
+        private List<Item> itemCache;
+
+        private void DrawItems()
+        {
+            if (!InGameGate()) return;
+            if (!HostGate("Only the host can spawn or move items.")) return;
+
+            // Pinned: scrap hauling + search, so the item list scrolls on its own below.
+            ScanPlaces();
+            BeginCard("Scrap", $"{scrapList.Count} loose · ${scrapList.Sum(s => s != null ? s.scrapValue : 0)}", Yellow);
+            if (Button("◆  Bring ALL scrap to the ship", Kind.Accent, GUILayout.Height(38))) Features.BringScrapToShip();
+            EndCard();
+
+            BeginCard("Spawn an item", "appears in front of you", Accent);
+            Row(() =>
+            {
+                itemSearch = TextField(itemSearch, "Search items...", GUILayout.Width(UiKit.ContentWidth * 0.55f));
+                GUILayout.Space(6);
+                itemValue = TextField(itemValue, "Value (blank = normal)", GUILayout.ExpandWidth(true));
+            });
+            GUILayout.Space(6);
+            itemFilter = Segmented(itemFilter, ItemFilters, 28f);
+            EndCard();
+
+            if (itemCache == null || itemCache.Count == 0) itemCache = Features.AllItems();
+            var shown = itemCache.Where(i => itemFilter == 0 || (itemFilter == 1) == i.isScrap)
+                .Where(i => string.IsNullOrEmpty(itemSearch) || i.itemName.IndexOf(itemSearch, System.StringComparison.OrdinalIgnoreCase) >= 0)
+                .ToList();
+            scrolls[tab] = GUILayout.BeginScrollView(scrolls[tab]);
+            BeginCard(null);
+            if (shown.Count == 0) Note("No items match.");
+            int pick = ButtonGrid(shown.Select(i => i.itemName).ToList(), 3);
+            if (pick >= 0)
+                Features.SpawnItem(shown[pick], int.TryParse(itemValue, out int v) ? Mathf.Max(0, v) : -1);
+            EndCard();
+            GUILayout.Space(50);
+            GUILayout.EndScrollView();
+        }
+
+        // ================================================================== Monsters
+
         private static readonly string[] SpawnLists = { "Inside", "Outside", "Daytime" };
         private int monsterView, spawnList, tableLevel = -1;
         private bool showAddList;
+        private string monsterSearch = "";
+        private int spawnCount = 1;
+        private readonly HashSet<string> expanded = new HashSet<string>();
         private readonly Dictionary<SpawnableEnemyWithRarity, int> savedRarity = new Dictionary<SpawnableEnemyWithRarity, int>();
+        private float nextSpamBatch;
+        private int spawnedByAll;
 
         private void DrawMonsters()
         {
-            if (!HostOnly()) return;
-            monsterView = GUILayout.Toolbar(monsterView, MonsterViews);
-            GUILayout.Space(4);
-            if (monsterView == 0) DrawSpawnedMonsters();
-            else DrawSpawnTable();
-        }
-
-        private void DrawSpawnedMonsters()
-        {
+            if (!HostGate("Only the host can control monsters.")) return;
             var rm = RoundManager.Instance;
-            if (rm == null) { GUILayout.Label("Not in a game."); return; }
+            if (rm == null || Local == null) { Callout("Join or host a game first.", Blue); return; }
             Settings.FrozenEnemies.RemoveWhere(e => e == null);
             var alive = rm.SpawnedEnemies.Where(e => e != null).ToList();
 
-            bool freezeAll = GUILayout.Toggle(Settings.FreezeEnemies, " Freeze ALL monsters");
-            if (freezeAll && !Settings.FreezeEnemies) foreach (var e in alive) TakeControl(e);
-            Settings.FreezeEnemies = freezeAll;
+            // Pinned toolbar: stays put however long the list below gets, so spamming never needs scrolling.
+            BeginCard();
+            var big = GUILayoutUtility.GetRect(10f, 54f, GUILayout.ExpandWidth(true));
+            float half = (big.width - 10f) / 2f;
+            if (ButtonAt(new Rect(big.x, big.y, half, big.height), "☠  SPAWN ALL", Kind.Accent, ButtonTextBig)) SpawnAll();
+            // Held: a batch every few hundred ms for as long as the button is down.
+            if (HoldButton(new Rect(big.x + half + 10f, big.y, half, big.height), "HOLD TO SPAM", Kind.Ghost, out _)
+                && Time.unscaledTime >= nextSpamBatch)
+            {
+                nextSpamBatch = Time.unscaledTime + Settings.SpamInterval;
+                SpawnAll();
+            }
+            GUILayout.Space(8);
             GUILayout.BeginHorizontal();
-            if (GUILayout.Button($"Kill all ({alive.Count(e => !e.isEnemyDead && e.enemyType.canDie)})"))
+            Badge($"{alive.Count} alive", alive.Count > 60 ? Red : alive.Count > 25 ? Yellow : Green);
+            GUILayout.Space(6);
+            Badge($"{spawnedByAll} from Spawn ALL", Dim);
+            GUILayout.FlexibleSpace();
+            bool freezeAll = Settings.FreezeEnemies;
+            if (Button(freezeAll ? "❄ Unfreeze all" : "❄ Freeze all", freezeAll ? Kind.Accent : Kind.Normal, GUILayout.Width(120), GUILayout.Height(28)))
+            {
+                if (!freezeAll) foreach (var e in alive) Features.TakeControl(e);
+                Settings.FreezeEnemies = !freezeAll;
+            }
+            if (Button("Kill all", Kind.Danger, GUILayout.Width(80), GUILayout.Height(28)))
             {
                 foreach (var e in alive) KillMonster(e);
-                status = "Killed every monster that can die";
+                Toast("Killed every monster that can die");
             }
-            if (GUILayout.Button($"Remove all ({alive.Count})"))
+            if (Button("Remove all", Kind.Danger, GUILayout.Width(100), GUILayout.Height(28)))
             {
                 foreach (var e in alive) RemoveMonster(e);
-                status = "Removed every monster";
+                Toast("Removed every monster");
             }
             GUILayout.EndHorizontal();
+            EndCard();
 
-            GUILayout.Space(4);
-            if (alive.Count == 0) GUILayout.Label("No monsters in the level right now.");
+            monsterView = Segmented(monsterView, new[] { $"Live ({alive.Count})", "Spawn one", "Spawn table" });
+
+            scrolls[tab] = GUILayout.BeginScrollView(scrolls[tab]);
+            if (monsterView == ViewLive) DrawLiveMonsters(alive);
+            else if (monsterView == ViewSpawn) DrawSpawnOne();
+            else DrawSpawnTable();
+            GUILayout.Space(50);
+            GUILayout.EndScrollView();
+        }
+
+        private void DrawLiveMonsters(List<EnemyAI> alive)
+        {
+            if (alive.Count == 0) { Callout("No monsters in the level right now. Hit SPAWN ALL above.", Dim); return; }
             var me = Local;
-            foreach (var e in alive.OrderBy(e => me != null ? Vector3.Distance(me.transform.position, e.transform.position) : 0f))
-            {
-                bool frozen = Settings.IsFrozen(e);
-                string state = e.isEnemyDead ? "dead"
-                    : e.currentBehaviourState != null && !string.IsNullOrEmpty(e.currentBehaviourState.name)
-                        ? e.currentBehaviourState.name : $"state {e.currentBehaviourStateIndex}";
-                float dist = me != null ? Vector3.Distance(me.transform.position, e.transform.position) : 0f;
-                GUILayout.Label($"<b>{DisplayName(e.enemyType)}</b>  [{state}]  {(e.isOutside ? "outside" : "inside")}  {dist:0}m" +
-                                (frozen ? "  <color=cyan>FROZEN</color>" : ""));
-                GUILayout.BeginHorizontal();
-                if (GUILayout.Button(Settings.FrozenEnemies.Contains(e) ? "Unfreeze" : "Freeze"))
-                {
-                    if (!Settings.FrozenEnemies.Remove(e)) { TakeControl(e); Settings.FrozenEnemies.Add(e); }
-                }
-                if (me != null && !e.isEnemyDead && GUILayout.Button("Bring here")) StartCoroutine(BringMonster(e));
-                if (me != null && GUILayout.Button("Go to it")) GoToMonster(e);
-                if (!e.isEnemyDead && e.enemyType.canDie && GUILayout.Button("Kill")) KillMonster(e);
-                if (GUILayout.Button("Remove")) RemoveMonster(e);
-                GUILayout.EndHorizontal();
-            }
+            float Dist(EnemyAI e) => Vector3.Distance(me.transform.position, e.transform.position);
 
-            GUILayout.Space(8);
-            if (me != null)
+            foreach (var group in alive.GroupBy(e => DisplayName(e.enemyType)).OrderBy(g => g.Min(Dist)))
             {
-                GUILayout.Label("Spawn ALL: one of every monster in front of you, indoor and outdoor");
+                var list = group.OrderBy(Dist).ToList();
+                bool isOpen = expanded.Contains(group.Key);
+                bool allFrozen = list.All(Settings.IsFrozen);
+                BeginCard();
                 GUILayout.BeginHorizontal();
-                if (GUILayout.Button("<b>SPAWN ALL</b>", GUILayout.Height(34))) SpawnAll();
-                // RepeatButton reports true every frame it's held: spawn a batch every 0.25 s while held.
-                if (GUILayout.RepeatButton("HOLD TO SPAM", GUILayout.Height(34)) && Time.unscaledTime >= nextSpamBatch)
+                var head = GUILayoutUtility.GetRect(10f, 30f, GUILayout.ExpandWidth(true));
+                float chevron = Anim(group.Key.GetHashCode(), isOpen ? 1f : 0f);
+                GUI.Label(new Rect(head.x, head.y, 20f, head.height), chevron > 0.5f ? "▾" : "▸", LabelBold);
+                GUI.Label(new Rect(head.x + 20f, head.y, head.width - 20f, head.height),
+                    $"{group.Key}  <color={Rich(Accent)}>×{list.Count}</color>   <size=12><color={Rich(Dim)}>nearest {Dist(list[0]):0} m</color></size>", LabelBold);
+                if (GUI.Button(head, GUIContent.none, GUIStyle.none))
                 {
-                    nextSpamBatch = Time.unscaledTime + 0.25f;
-                    SpawnAll();
+                    if (!expanded.Remove(group.Key)) expanded.Add(group.Key);
                 }
+                if (Button(allFrozen ? "Unfreeze" : "Freeze", allFrozen ? Kind.Accent : Kind.Normal, GUILayout.Width(88), GUILayout.Height(28)))
+                    foreach (var e in list)
+                    {
+                        if (allFrozen) Settings.FrozenEnemies.Remove(e);
+                        else { Features.TakeControl(e); Settings.FrozenEnemies.Add(e); }
+                    }
+                if (Button("Bring", Kind.Normal, GUILayout.Width(70), GUILayout.Height(28)))
+                    foreach (var e in list.Where(x => !x.isEnemyDead)) StartCoroutine(BringMonster(e));
+                if (list.Any(e => e.enemyType.canDie && !e.isEnemyDead) && Button("Kill", Kind.Danger, GUILayout.Width(56), GUILayout.Height(28)))
+                    foreach (var e in list) KillMonster(e);
+                if (Button("Remove", Kind.Danger, GUILayout.Width(80), GUILayout.Height(28)))
+                    foreach (var e in list) RemoveMonster(e);
                 GUILayout.EndHorizontal();
-                GUILayout.Label($"Monsters in the level: {alive.Count}. Too many will lag everyone; 'Remove all' clears them.");
-            }
 
+                if (isOpen)
+                    foreach (var e in list) DrawMonsterRow(e, Dist(e));
+                EndCard();
+            }
+        }
+
+        private static readonly float[] Sizes = { 0.25f, 0.5f, 1f, 2f, 3f, 5f };
+
+        private void DrawMonsterRow(EnemyAI e, float dist)
+        {
+            GUILayout.Space(4);
+            Fill(GUILayoutUtility.GetRect(10f, 1f, GUILayout.ExpandWidth(true)), Line);
+            GUILayout.Space(4);
+            bool frozen = Settings.IsFrozen(e);
+            bool pet = Features.IsPet(e);
+            string state = e.isEnemyDead ? "dead"
+                : e.currentBehaviourState != null && !string.IsNullOrEmpty(e.currentBehaviourState.name)
+                    ? e.currentBehaviourState.name : $"state {e.currentBehaviourStateIndex}";
+
+            GUILayout.BeginHorizontal();
+            GUILayout.Label($"{dist:0} m", LabelBold, GUILayout.Width(50));
+            GUILayout.Label($"{state} · {(e.isOutside ? "outside" : "inside")}", LabelSmall, GUILayout.Width(150));
+            if (frozen) { Badge("FROZEN", Cyan); GUILayout.Space(4); }
+            if (pet) { Badge("PET", Green); GUILayout.Space(4); }
+            float size = Features.SizeOf(e);
+            if (!Mathf.Approximately(size, 1f)) Badge($"{size:0.##}x", Purple);
+            GUILayout.FlexibleSpace();
+            GUILayout.EndHorizontal();
+
+            GUILayout.BeginHorizontal();
+            if (Button(Settings.FrozenEnemies.Contains(e) ? "Unfreeze" : "Freeze", Kind.Normal, GUILayout.Height(26)))
+            {
+                if (!Settings.FrozenEnemies.Remove(e)) { Features.TakeControl(e); Settings.FrozenEnemies.Add(e); }
+            }
+            if (!e.isEnemyDead && Button(pet ? "Unpet" : "♥ Pet", pet ? Kind.Good : Kind.Normal, GUILayout.Height(26))) Features.SetPet(e, !pet);
+            if (!e.isEnemyDead && Button("Bring here", Kind.Normal, GUILayout.Height(26))) StartCoroutine(BringMonster(e));
+            if (Button("Go to it", Kind.Normal, GUILayout.Height(26))) GoToMonster(e);
+            if (!e.isEnemyDead && e.enemyType.canDie && Button("Kill", Kind.Danger, GUILayout.Height(26))) KillMonster(e);
+            if (Button("Remove", Kind.Danger, GUILayout.Height(26))) RemoveMonster(e);
+            GUILayout.EndHorizontal();
+
+            GUILayout.BeginHorizontal();
+            GUILayout.Label("Size", LabelSmall, GUILayout.Width(40));
+            foreach (var s in Sizes)
+                if (Button(s + "x", Mathf.Approximately(size, s) ? Kind.Accent : Kind.Ghost, GUILayout.Height(24), GUILayout.Width(52)))
+                {
+                    Features.SetSize(e, s);
+                    Toast($"{DisplayName(e.enemyType)} is now {s}x size");
+                }
+            GUILayout.FlexibleSpace();
+            GUILayout.EndHorizontal();
+        }
+
+        private void DrawSpawnOne()
+        {
+            BeginCard("Spawn in front of you", null, Accent);
+            monsterSearch = TextField(monsterSearch, "Search monsters...");
             GUILayout.Space(6);
-            GUILayout.Label("Spawn one in front of you:");
-            for (int i = 0; i < enemyTypes.Count; i += 3)
-            {
-                GUILayout.BeginHorizontal();
-                for (int j = i; j < Mathf.Min(i + 3, enemyTypes.Count); j++)
-                    if (GUILayout.Button(DisplayName(enemyTypes[j]))) SpawnEnemy(enemyTypes[j]);
-                GUILayout.EndHorizontal();
-            }
+            spawnCount = Mathf.RoundToInt(Slider("How many per click", spawnCount, 1, 20, "0", ""));
+            GUILayout.Space(4);
+            var shown = enemyTypes.Where(t => string.IsNullOrEmpty(monsterSearch) ||
+                                              DisplayName(t).IndexOf(monsterSearch, System.StringComparison.OrdinalIgnoreCase) >= 0).ToList();
+            int pick = ButtonGrid(shown.Select(DisplayName).ToList(), 3);
+            if (pick >= 0) for (int i = 0; i < spawnCount; i++) SpawnEnemy(shown[pick], i);
+            EndCard();
         }
 
         /// <summary>Monsters chasing a client are run by that client; pull the AI back to the host so host controls apply.</summary>
-        private static void TakeControl(EnemyAI e)
-        {
-            if (e != null && !e.isEnemyDead && !e.IsOwner) e.ChangeOwnershipOfEnemy(NetworkManager.ServerClientId);
-        }
-
         private void KillMonster(EnemyAI e)
         {
             if (e == null || e.isEnemyDead || !e.enemyType.canDie) return;
@@ -366,6 +741,7 @@ namespace Overstretched
         {
             if (e == null) return;
             Settings.FrozenEnemies.Remove(e);
+            Features.SetPet(e, false);
             if (e.thisNetworkObject != null && e.thisNetworkObject.IsSpawned) e.thisNetworkObject.Despawn();
         }
 
@@ -374,9 +750,10 @@ namespace Overstretched
             var me = Local;
             var cam = me.gameplayCamera.transform;
             var flat = Vector3.ProjectOnPlane(cam.forward, Vector3.up).normalized;
-            if (!UnityEngine.AI.NavMesh.SamplePosition(me.transform.position + flat * 4f, out var hit, 6f, UnityEngine.AI.NavMesh.AllAreas))
+            var around = me.transform.position + flat * 4f + Quaternion.Euler(0f, Random.Range(-40f, 40f), 0f) * flat * Random.Range(0f, 2f);
+            if (!UnityEngine.AI.NavMesh.SamplePosition(around, out var hit, 6f, UnityEngine.AI.NavMesh.AllAreas))
             {
-                status = "No floor for it to stand on there";
+                Toast("No floor for it to stand on there");
                 yield break;
             }
             if (!e.IsOwner)
@@ -389,107 +766,336 @@ namespace Overstretched
             if (e.isOutside == me.isInsideFactory) e.SetEnemyOutside(!me.isInsideFactory);
             if (e.agent != null && e.agent.enabled) e.agent.Warp(hit.position);
             else e.transform.position = hit.position;
-            e.serverPosition = hit.position;
-            e.SyncPositionToClients();
-            status = $"Brought {DisplayName(e.enemyType)} to you";
+            e.SyncPositionToClients(); // sends only when it moved from the last synced spot, so don't touch serverPosition first
+            Toast($"Brought {DisplayName(e.enemyType)} to you");
         }
 
         private void GoToMonster(EnemyAI e)
         {
-            var me = Local;
             var back = e.transform.position - e.transform.forward * 3f;
             var spot = UnityEngine.AI.NavMesh.SamplePosition(back, out var hit, 4f, UnityEngine.AI.NavMesh.AllAreas) ? hit.position : e.transform.position;
-            me.TeleportPlayer(spot);
-            me.isInsideFactory = !e.isOutside;
-            me.isInHangarShipRoom = false;
-            me.isInElevator = false;
-            status = $"Teleported to {DisplayName(e.enemyType)}";
+            Features.TeleportLocal(spot, !e.isOutside);
+            Toast($"Teleported to {DisplayName(e.enemyType)}");
         }
 
         private void DrawSpawnTable()
         {
             var levels = StartOfRound.Instance != null ? StartOfRound.Instance.levels : null;
-            if (levels == null || levels.Length == 0) { GUILayout.Label("Not in a game."); return; }
+            if (levels == null || levels.Length == 0) { Callout("Not in a game.", Blue); return; }
             int routed = Mathf.Max(0, System.Array.IndexOf(levels, StartOfRound.Instance.currentLevel));
             int index = tableLevel >= 0 && tableLevel < levels.Length ? tableLevel : routed;
             var level = levels[index];
 
+            BeginCard();
             GUILayout.BeginHorizontal();
-            if (GUILayout.Button("<", GUILayout.Width(30))) tableLevel = (index - 1 + levels.Length) % levels.Length;
-            GUILayout.Label($"<b>{level.PlanetName}</b>{(index == routed ? "  (current moon)" : "")}");
-            if (GUILayout.Button(">", GUILayout.Width(30))) tableLevel = (index + 1) % levels.Length;
+            if (Button("◀", Kind.Normal, GUILayout.Width(40), GUILayout.Height(30))) tableLevel = (index - 1 + levels.Length) % levels.Length;
+            GUILayout.FlexibleSpace();
+            GUILayout.Label($"{level.PlanetName}{(index == routed ? $"  <color={Rich(Accent)}>· current moon</color>" : "")}", LabelBold);
+            GUILayout.FlexibleSpace();
+            if (Button("▶", Kind.Normal, GUILayout.Width(40), GUILayout.Height(30))) tableLevel = (index + 1) % levels.Length;
             GUILayout.EndHorizontal();
-            Settings.EnemyPowerMultiplier = Slider("Spawn cap, all moons (applies from the next landing)", Settings.EnemyPowerMultiplier, 0f, 5f);
-
-            spawnList = GUILayout.Toolbar(spawnList, SpawnLists);
+            GUILayout.Space(6);
+            Settings.EnemyPowerMultiplier = Slider("Spawn cap, all moons (from the next landing)", Settings.EnemyPowerMultiplier, 0f, 5f);
+            spawnList = Segmented(spawnList, SpawnLists, 28f);
+            Note("Changes apply to every spawn from now on, including the rest of today.");
+            GUILayout.Space(4);
             var list = spawnList == 0 ? level.Enemies : spawnList == 1 ? level.OutsideEnemies : level.DaytimeEnemies;
-            GUILayout.Label("Changes apply to every spawn from now on, including the rest of today.");
             GUILayout.BeginHorizontal();
-            if (GUILayout.Button("All off"))
+            if (Button("All off", Kind.Normal, GUILayout.Height(28)))
                 foreach (var entry in list.Where(x => x.rarity > 0)) { savedRarity[entry] = entry.rarity; entry.rarity = 0; }
-            if (GUILayout.Button("All on"))
+            if (Button("All on", Kind.Normal, GUILayout.Height(28)))
                 foreach (var entry in list.Where(x => x.rarity == 0)) entry.rarity = RestoredRarity(entry);
             GUILayout.EndHorizontal();
+            EndCard();
 
+            BeginCard($"{SpawnLists[spawnList]} spawns", $"{list.Count(x => x.enemyType != null && x.rarity > 0)} active");
             int total = list.Where(x => x.enemyType != null).Sum(x => x.rarity);
-            if (list.Count == 0) GUILayout.Label("Nothing can spawn here.");
+            if (list.Count == 0) Note("Nothing can spawn here.");
             foreach (var entry in list.ToList())
             {
                 if (entry.enemyType == null) continue;
-                GUILayout.BeginHorizontal();
                 bool on = entry.rarity > 0;
-                bool nowOn = GUILayout.Toggle(on, " " + DisplayName(entry.enemyType), GUILayout.Width(170));
+                GUILayout.BeginHorizontal();
+                bool nowOn = Switch($"{DisplayName(entry.enemyType)}  <color={Rich(Dim)}><size=12>{(total > 0 ? entry.rarity * 100f / total : 0f):0}%</size></color>", on);
+                if (Button("✕", Kind.Ghost, GUILayout.Width(32), GUILayout.Height(28))) list.Remove(entry);
+                GUILayout.EndHorizontal();
                 if (nowOn != on)
                 {
                     if (!nowOn) { savedRarity[entry] = entry.rarity; entry.rarity = 0; }
                     else entry.rarity = RestoredRarity(entry);
                 }
-                GUILayout.Label(total > 0 ? $"{entry.rarity * 100f / total:0}%" : "0%", GUILayout.Width(38));
-                entry.rarity = Mathf.RoundToInt(GUILayout.HorizontalSlider(entry.rarity, 0, 300, GUILayout.Width(150)));
-                GUILayout.Label(entry.rarity.ToString(), GUILayout.Width(30));
-                if (GUILayout.Button("X", GUILayout.Width(24))) list.Remove(entry);
-                GUILayout.EndHorizontal();
+                if (entry.rarity > 0) entry.rarity = Mathf.RoundToInt(Slider("Weight", entry.rarity, 1, 300, "0", ""));
             }
+            EndCard();
 
-            GUILayout.Space(6);
-            showAddList = GUILayout.Toggle(showAddList, $" Add a monster to {level.PlanetName}'s {SpawnLists[spawnList].ToLower()} list");
-            if (!showAddList) return;
-            var candidates = enemyTypes
-                .Where(t => list.All(x => x.enemyType != t))
-                .Where(t => spawnList == 0 ? !t.isOutsideEnemy : spawnList == 1 ? t.isOutsideEnemy && !t.isDaytimeEnemy : t.isDaytimeEnemy)
-                .ToList();
-            if (candidates.Count == 0) GUILayout.Label("Every suitable monster is already on this list.");
-            for (int i = 0; i < candidates.Count; i += 3)
+            BeginCard($"Add to {level.PlanetName}");
+            showAddList = Switch($"Show monsters that can be added to the {SpawnLists[spawnList].ToLower()} list", showAddList);
+            if (showAddList)
             {
-                GUILayout.BeginHorizontal();
-                for (int j = i; j < Mathf.Min(i + 3, candidates.Count); j++)
-                    if (GUILayout.Button(DisplayName(candidates[j])))
-                    {
-                        list.Add(new SpawnableEnemyWithRarity(candidates[j], 25));
-                        status = $"{DisplayName(candidates[j])} can now spawn on {level.PlanetName}";
-                    }
-                GUILayout.EndHorizontal();
+                var candidates = enemyTypes
+                    .Where(t => list.All(x => x.enemyType != t))
+                    .Where(t => spawnList == 0 ? !t.isOutsideEnemy : spawnList == 1 ? t.isOutsideEnemy && !t.isDaytimeEnemy : t.isDaytimeEnemy)
+                    .ToList();
+                if (candidates.Count == 0) Note("Every suitable monster is already on this list.");
+                int pick = ButtonGrid(candidates.Select(c => "+ " + DisplayName(c)).ToList(), 3, Kind.Ghost);
+                if (pick >= 0)
+                {
+                    list.Add(new SpawnableEnemyWithRarity(candidates[pick], 25));
+                    Toast($"{DisplayName(candidates[pick])} can now spawn on {level.PlanetName}");
+                }
             }
+            EndCard();
         }
-
-        // Hooks for the automated self-test.
-        internal void DebugShow(int showTab, int view, int list)
-        {
-            if (showTab < 0) { if (open) SetOpen(false); return; }
-            if (!open) SetOpen(true);
-            tab = showTab;
-            monsterView = view;
-            spawnList = list;
-            showAddList = true;
-        }
-        internal void DebugBring(EnemyAI e) => StartCoroutine(BringMonster(e));
-        internal void DebugGoTo(EnemyAI e) => GoToMonster(e);
-        internal void DebugRemove(EnemyAI e) => RemoveMonster(e);
-        internal int DebugSpawnAll() { if (enemyTypes.Count == 0) RefreshEnemyTypes(); return SpawnAll(); }
-        internal string DebugStatus => status;
 
         private int RestoredRarity(SpawnableEnemyWithRarity entry) =>
             savedRarity.TryGetValue(entry, out int r) && r > 0 ? r : 25;
+
+        private void SpawnEnemy(EnemyType type, int index = 0)
+        {
+            var p = Local;
+            var rm = RoundManager.Instance;
+            if (p == null || rm == null) return;
+            var cam = p.gameplayCamera.transform;
+            var pos = Physics.Raycast(cam.position, cam.forward, out var hit, 20f, StartOfRound.Instance.collidersAndRoomMaskAndDefault)
+                ? hit.point - cam.forward * 0.5f
+                : cam.position + cam.forward * 6f;
+            if (index > 0) { var o = Random.insideUnitCircle * 3f; pos += new Vector3(o.x, 0f, o.y); }
+            pos = rm.GetNavMeshPosition(pos, default, 10f);
+            SpawnNestFor(type, pos);
+            rm.SpawnEnemyGameObject(pos, p.transform.eulerAngles.y + 180f, -1, type);
+            Toast(index > 0 ? $"Spawned {index + 1}x {DisplayName(type)}" : $"Spawned {DisplayName(type)}");
+        }
+
+        /// <summary>
+        /// One of every monster, indoor and outdoor alike, wherever you're standing, scattered in a ring in
+        /// front of you so they don't all stack on one spot. Monsters out of their usual area may wander oddly.
+        /// </summary>
+        private int SpawnAll()
+        {
+            var p = Local;
+            var rm = RoundManager.Instance;
+            if (p == null || rm == null) return 0;
+            if (enemyTypes.Count == 0) RefreshEnemyTypes();
+            var flat = Vector3.ProjectOnPlane(p.gameplayCamera.transform.forward, Vector3.up).normalized;
+            var centre = p.transform.position + flat * 7f;
+            int count = 0;
+            // Only monsters that spawn naturally on some moon: helper/companion ones (Cadaver Bloom, Butler Bees)
+            // and cut ones (Lasso, Red pill) break or error when spawned on their own.
+            var natural = Features.NaturalTypes();
+            for (int batch = 0; batch < Mathf.Max(1, Settings.SpawnAllBatches); batch++)
+                foreach (var type in enemyTypes.Where(t => natural.Contains(t)))
+                {
+                    var offset = Random.insideUnitCircle * 5f;
+                    var spot = rm.GetNavMeshPosition(centre + new Vector3(offset.x, 0f, offset.y), default, 10f);
+                    SpawnNestFor(type, spot);
+                    rm.SpawnEnemyGameObject(spot, Random.Range(0f, 360f), -1, type);
+                    count++;
+                }
+            spawnedByAll += count;
+            Toast($"Spawned {count} monsters ({spawnedByAll} from Spawn ALL so far)");
+            return count;
+        }
+
+        // ================================================================== World
+
+        private void DrawWorld()
+        {
+            if (!HostGate()) return;
+            BeginCard("Time", TimeOfDay.Instance != null ? $"day {TimeOfDay.Instance.normalizedTimeOfDay * 100f:0}% done" : null, Yellow);
+            Settings.TimeSpeed = Slider("Time speed", Settings.TimeSpeed, 0f, 10f);
+            Settings.FreezeTime = Switch("Freeze the clock", Settings.FreezeTime, "The day never ends", Yellow);
+            EndCard();
+
+            var rm = RoundManager.Instance;
+            if (!Features.InRound) { Callout("Lights, doors and traps work once you've landed.", Blue); }
+            else
+            {
+                BeginCard("Facility power", null, Yellow);
+                Row(() =>
+                {
+                    if (Button("Lights ON", Kind.Good)) { rm.SwitchPower(true); Toast("Power on"); }
+                    if (Button("Lights OFF", Kind.Danger)) { rm.SwitchPower(false); Toast("Power off"); }
+                    if (Button("Flicker")) rm.FlickerLights(true, false);
+                });
+                EndCard();
+
+                BeginCard("Doors", "every door in the facility", Blue);
+                Row(() =>
+                {
+                    if (Button("Open all", Kind.Good)) Features.Doors(MenuNet.DoorAction.Open);
+                    if (Button("Close all")) Features.Doors(MenuNet.DoorAction.Close);
+                    if (Button("Unlock all")) Features.Doors(MenuNet.DoorAction.Unlock);
+                    if (Button("Lock all", Kind.Danger)) Features.Doors(MenuNet.DoorAction.Lock);
+                });
+                EndCard();
+
+                BeginCard("Traps", "mines, turrets, spike traps", Orange);
+                Row(() =>
+                {
+                    if (Button("Disable all traps", Kind.Good)) Features.SetTraps(false);
+                    if (Button("Enable all traps", Kind.Danger)) Features.SetTraps(true);
+                });
+                EndCard();
+            }
+
+            var level = StartOfRound.Instance != null ? StartOfRound.Instance.currentLevel : null;
+            if (level == null) return;
+            BeginCard("Weather", $"{level.PlanetName}: {level.currentWeather} (applies when you land)", Cyan);
+            var weathers = System.Enum.GetValues(typeof(LevelWeatherType)).Cast<LevelWeatherType>().ToList();
+            for (int i = 0; i < weathers.Count; i += 4)
+                Row(() =>
+                {
+                    for (int j = i; j < Mathf.Min(i + 4, weathers.Count); j++)
+                        if (Button(weathers[j].ToString(), weathers[j] == level.currentWeather ? Kind.Accent : Kind.Normal,
+                                   GUILayout.Height(30), GUILayout.Width(UiKit.ContentWidth / 4f - 6f)))
+                            level.currentWeather = weathers[j];
+                });
+            EndCard();
+        }
+
+        // ================================================================== Ship
+
+        private string unlockSearch = "";
+
+        private void DrawShip()
+        {
+            if (!InGameGate()) return;
+            var sor = StartOfRound.Instance;
+            string phase = sor.inShipPhase ? (sor.travellingToNewLevel ? "flying to a moon" : "in orbit")
+                : sor.shipIsLeaving ? "taking off" : sor.shipHasLanded ? "landed" : "landing";
+            BeginCard("Lever", $"{sor.currentLevel.PlanetName} · {phase}", Accent);
+            Row(() =>
+            {
+                if (Button(sor.inShipPhase ? "✈  Land the ship" : "✈  Leave the moon", Kind.Accent, GUILayout.Height(38))) Features.PullLever();
+                if (IsHost && sor.inShipPhase && Button("Force land", Kind.Ghost, GUILayout.Height(38))) Features.ForceLand();
+                if (IsHost && sor.shipHasLanded && Button("Force leave", Kind.Danger, GUILayout.Height(38))) Features.ForceLeave();
+            });
+            Note("Pulls the lever for you, even when you're alone. Force skips the lever checks.");
+            EndCard();
+
+            if (!HostGate("Moons, upgrades and store items are host only.")) return;
+
+            BeginCard("Moons", "free routing, in orbit only", Blue);
+            var levels = sor.levels.Where(l => l != null).ToList();
+            for (int i = 0; i < levels.Count; i += 3)
+                Row(() =>
+                {
+                    for (int j = i; j < Mathf.Min(i + 3, levels.Count); j++)
+                    {
+                        var l = levels[j];
+                        bool here = l == sor.currentLevel;
+                        if (Button(l.PlanetName, here ? Kind.Accent : Kind.Normal, GUILayout.Height(30), GUILayout.Width(UiKit.ContentWidth / 3f - 6f)) && !here)
+                            Features.RouteTo(l);
+                    }
+                });
+            EndCard();
+
+            var terminal = FindObjectOfType<Terminal>();
+            if (terminal != null && terminal.buyableItemsList != null)
+            {
+                BeginCard("Store", "free, spawns in front of you", Green);
+                int pick = ButtonGrid(terminal.buyableItemsList.Select(i => i.itemName).ToList(), 3, Kind.Good);
+                if (pick >= 0) Features.SpawnItem(terminal.buyableItemsList[pick], -1);
+                EndCard();
+            }
+
+            BeginCard("Ship upgrades & decor", "free", Purple);
+            unlockSearch = TextField(unlockSearch, "Search upgrades, suits, furniture...");
+            GUILayout.Space(6);
+            var unlockables = sor.unlockablesList.unlockables;
+            var missing = Enumerable.Range(0, unlockables.Count)
+                .Where(i => unlockables[i] != null && !unlockables[i].hasBeenUnlockedByPlayer && !unlockables[i].alreadyUnlocked)
+                .Where(i => string.IsNullOrEmpty(unlockSearch) || unlockables[i].unlockableName.IndexOf(unlockSearch, System.StringComparison.OrdinalIgnoreCase) >= 0)
+                .ToList();
+            if (missing.Count == 0) Note("Everything matching is already unlocked.");
+            int unlock = ButtonGrid(missing.Select(i => unlockables[i].unlockableName).ToList(), 3);
+            if (unlock >= 0) Features.UnlockForFree(missing[unlock]);
+            EndCard();
+        }
+
+        // ================================================================== Economy
+
+        private void DrawEconomy()
+        {
+            var terminal = FindObjectOfType<Terminal>();
+            var time = TimeOfDay.Instance;
+            BeginCard("Credits", terminal != null ? $"${terminal.groupCredits}" : "-", Green);
+            GUILayout.BeginHorizontal();
+            creditsInput = TextField(creditsInput, "Amount", GUILayout.Width(160));
+            if (Button("Set credits", Kind.Accent, GUILayout.Height(32)) && terminal != null && int.TryParse(creditsInput, out int credits))
+            {
+                terminal.groupCredits = credits;
+                terminal.SyncGroupCreditsServerRpc(credits, terminal.numberOfItemsInDropship);
+                Toast($"Credits set to {credits}");
+            }
+            foreach (var add in new[] { 100, 1000, 10000 })
+                if (Button($"+{add}", Kind.Ghost, GUILayout.Height(32)) && terminal != null)
+                {
+                    terminal.groupCredits += add;
+                    terminal.SyncGroupCreditsServerRpc(terminal.groupCredits, terminal.numberOfItemsInDropship);
+                    Toast($"Credits: {terminal.groupCredits}");
+                }
+            GUILayout.EndHorizontal();
+            EndCard();
+
+            if (time == null) return;
+            BeginCard("Quota", $"{time.quotaFulfilled} / {time.profitQuota} · {time.daysUntilDeadline} days left", Yellow);
+            if (HostGate())
+            {
+                GUILayout.BeginHorizontal();
+                quotaInput = TextField(quotaInput, "Quota", GUILayout.Width(160));
+                if (Button("Set quota", Kind.Accent, GUILayout.Height(32)) && int.TryParse(quotaInput, out int quota))
+                {
+                    time.profitQuota = quota;
+                    time.SyncNewProfitQuotaClientRpc(quota, 0, time.timesFulfilledQuota);
+                    Toast($"Quota set to {quota}");
+                }
+                if (Button("Mark quota as met", Kind.Good, GUILayout.Height(32)))
+                {
+                    time.quotaFulfilled = time.profitQuota;
+                    Toast("Quota marked as met");
+                }
+                GUILayout.EndHorizontal();
+            }
+            EndCard();
+
+            if (!IsHost) return;
+            BeginCard("Scrap on the next moons", null, Gold);
+            Settings.ScrapValueMultiplier = Slider("Scrap value", Settings.ScrapValueMultiplier, 0.1f, 10f);
+            Settings.ScrapAmountMultiplier = Slider("Scrap amount", Settings.ScrapAmountMultiplier, 0.1f, 5f);
+            EndCard();
+        }
+
+        // ================================================================== Chaos
+
+        private void DrawChaos()
+        {
+            if (!HostGate()) return;
+            BeginCard();
+            if (Button("⚡  RANDOM CHAOS EVENT", Kind.Accent, GUILayout.Height(52))) Features.RandomChaos();
+            Note("Picks one of the events below at random.");
+            EndCard();
+
+            BeginCard("Events", null, Red);
+            Settings.HordeSize = Mathf.RoundToInt(Slider("Horde size", Settings.HordeSize, 2, 40, "0", " monsters"));
+            Settings.ChaosSeconds = Slider("Event length", Settings.ChaosSeconds, 5f, 120f, "0", " s");
+            GUILayout.Space(4);
+            Row(() =>
+            {
+                if (Button("☠ Horde", Kind.Danger, GUILayout.Height(36))) Features.Horde(Settings.HordeSize);
+                if (Button("☾ Lights out", Kind.Normal, GUILayout.Height(36))) Features.LightsOut(Settings.ChaosSeconds);
+                if (Button("✦ Scatter players", Kind.Normal, GUILayout.Height(36))) Features.Scatter();
+            });
+            Row(() =>
+            {
+                if (Button("☁ Low gravity", Kind.Normal, GUILayout.Height(36))) Features.LowGravity(Settings.ChaosSeconds);
+                if (Button("≋ Earthquake", Kind.Normal, GUILayout.Height(36))) Features.Earthquake(8f);
+            });
+            EndCard();
+            Callout("Pets and monster sizes live on each monster in Monsters > Live: open a group to find them.", Dim);
+        }
+
+        // ================================================================== The Stretched
 
         private readonly List<GameObject> previews = new List<GameObject>();
         private float previewSpeed = 1f;
@@ -498,68 +1104,73 @@ namespace Overstretched
         private void DrawStretched()
         {
             var live = FindObjectsOfType<StretchedAI>();
-            GUILayout.Label($"The Stretched (live): {live.Length}");
+            BeginCard("Live", $"{live.Length} in the level", Red);
+            if (live.Length == 0) Note("None right now.");
             foreach (var ai in live)
             {
-                var marked = ai.MarkedIndex >= 0 && ai.MarkedIndex < StartOfRound.Instance.allPlayerScripts.Length
-                    ? StartOfRound.Instance.allPlayerScripts[ai.MarkedIndex].playerUsername : "-";
-                GUILayout.Label($"  {ai.CurrentState}  mode {ai.Mode}  target {(ai.Target != null ? ai.Target.playerUsername : "-")}  " +
-                                $"marked {marked}  escapes {ai.Escapes}");
+                var players = StartOfRound.Instance.allPlayerScripts;
+                var marked = ai.MarkedIndex >= 0 && ai.MarkedIndex < players.Length ? players[ai.MarkedIndex].playerUsername : "-";
+                Row(() =>
+                {
+                    Badge(ai.CurrentState.ToString(), Red); GUILayout.Space(6);
+                    GUILayout.Label($"mode {ai.Mode} · target {(ai.Target != null ? ai.Target.playerUsername : "-")} · marked {marked} · escapes {ai.Escapes}", LabelSmall);
+                    GUILayout.FlexibleSpace();
+                });
             }
-            if (IsHost && StretchedRegistry.Type != null && Local != null && GUILayout.Button("Spawn The Stretched (real AI) in front of me"))
+            if (IsHost && StretchedRegistry.Type != null && Local != null &&
+                Button("Spawn The Stretched (real AI) in front of me", Kind.Accent, GUILayout.Height(36)))
                 SpawnEnemy(StretchedRegistry.Type);
+            EndCard();
 
-            GUILayout.Space(6);
-            GUILayout.Label("Model preview (only you see it, no AI)");
-            if (Local != null && GUILayout.Button("Spawn The Stretched in front of me"))
-                SpawnPreview();
-            previews.RemoveAll(p => p == null);
-            if (previews.Count > 0 && GUILayout.Button($"Remove previews ({previews.Count})"))
+            BeginCard("Model preview", "only you see it, no AI", Purple);
+            Row(() =>
             {
-                foreach (var p in previews)
-                    if (p != null) Destroy(p);
-                previews.Clear();
-            }
-
+                if (Local != null && Button("Spawn a preview")) SpawnPreview();
+                previews.RemoveAll(p => p == null);
+                if (previews.Count > 0 && Button($"Remove previews ({previews.Count})", Kind.Danger))
+                {
+                    foreach (var p in previews)
+                        if (p != null) Destroy(p);
+                    previews.Clear();
+                }
+            });
             if (previews.Count > 0 && StretchedAnimations.Clips != null)
             {
                 GUILayout.Space(6);
-                GUILayout.Label($"Animations (playing: {previewClip})");
-                float speed = Slider("Speed", previewSpeed, 0.1f, 2f);
+                float speed = Slider("Animation speed", previewSpeed, 0.1f, 2f);
                 if (!Mathf.Approximately(speed, previewSpeed))
                 {
                     previewSpeed = speed;
                     foreach (var p in previews) p.GetComponent<StretchedAnimator>().Speed = speed;
                 }
                 var names = StretchedAnimations.Clips.Keys.OrderBy(n => n).ToList();
-                for (int i = 0; i < names.Count; i += 3)
+                var labels = names.Select(n =>
                 {
-                    GUILayout.BeginHorizontal();
-                    for (int j = i; j < Mathf.Min(i + 3, names.Count); j++)
-                    {
-                        var clip = StretchedAnimations.Clips[names[j]];
-                        string label = names[j].Replace('_', ' ') + (clip.Loop ? " ↻" : "") + (clip.Ceiling ? " ▲" : "");
-                        if (GUILayout.Button(label)) PlayOnPreviews(names[j]);
-                    }
-                    GUILayout.EndHorizontal();
-                }
-                GUILayout.Label("↻ loops   ▲ plays upside down on the ceiling above it");
+                    var clip = StretchedAnimations.Clips[n];
+                    return n.Replace('_', ' ') + (clip.Loop ? " ↻" : "") + (clip.Ceiling ? " ▲" : "");
+                }).ToList();
+                int pick = ButtonGrid(labels, 3, Kind.Normal, 28f);
+                if (pick >= 0) PlayOnPreviews(names[pick]);
+                Note($"Playing: {previewClip}.  ↻ loops   ▲ plays upside down on the ceiling above it");
             }
+            EndCard();
 
-            GUILayout.Space(8);
-            GUILayout.Label("Behaviour settings");
-            if (!HostOnly()) return;
-            bool enabled = GUILayout.Toggle(Settings.StretchedEnabled, " Can spawn naturally (all moons)");
-            int rarity = (int)Slider("Spawn weight (all moons)", Settings.StretchedRarity, 0, 300);
-            if (enabled != Settings.StretchedEnabled || rarity != Settings.StretchedRarity)
+            BeginCard("Behaviour", null, Accent);
+            if (HostGate())
             {
-                Settings.StretchedEnabled = enabled;
-                Settings.StretchedRarity = rarity;
-                StretchedRegistry.SyncSpawnLists(overwrite: true);
+                bool enabled = Switch("Can spawn naturally", Settings.StretchedEnabled, "On every moon's indoor list");
+                int rarity = Mathf.RoundToInt(Slider("Spawn weight (all moons)", Settings.StretchedRarity, 0, 300, "0", ""));
+                if (enabled != Settings.StretchedEnabled || rarity != Settings.StretchedRarity)
+                {
+                    Settings.StretchedEnabled = enabled;
+                    Settings.StretchedRarity = rarity;
+                    StretchedRegistry.SyncSpawnLists(overwrite: true);
+                }
+                Settings.StretchedSilenceRadius = Slider("Silence radius", Settings.StretchedSilenceRadius, 5f, 40f, "0", " m");
+                Settings.StretchedAggression = Slider("Aggression", Settings.StretchedAggression, 0.25f, 3f);
+                Settings.StretchedSpeed = Slider("Speed", Settings.StretchedSpeed, 0.25f, 3f);
             }
-            Settings.StretchedSilenceRadius = Slider("Silence radius (m)", Settings.StretchedSilenceRadius, 5f, 40f);
-            Settings.StretchedAggression = Slider("Aggression", Settings.StretchedAggression, 0.25f, 3f);
-            Settings.StretchedSpeed = Slider("Speed", Settings.StretchedSpeed, 0.25f, 3f);
+            EndCard();
         }
 
         private void SpawnPreview()
@@ -578,61 +1189,13 @@ namespace Overstretched
                 placement.Init(pos, rot);
                 previews.Add(preview);
                 if (previewClip != "idle") PlayOnPreviews(previewClip);
-                status = "Spawned The Stretched preview";
+                Toast("Spawned The Stretched preview");
             }
             catch (System.Exception e)
             {
-                status = "Preview failed: " + e.Message;
+                Toast("Preview failed: " + e.Message);
                 Plugin.Log.LogError(e);
             }
-        }
-
-        private void SpawnEnemy(EnemyType type)
-        {
-            var p = Local;
-            var rm = RoundManager.Instance;
-            if (p == null || rm == null) return;
-            var cam = p.gameplayCamera.transform;
-            var pos = Physics.Raycast(cam.position, cam.forward, out var hit, 20f, StartOfRound.Instance.collidersAndRoomMaskAndDefault)
-                ? hit.point - cam.forward * 0.5f
-                : cam.position + cam.forward * 6f;
-            pos = RoundManager.Instance.GetNavMeshPosition(pos, default, 10f);
-            SpawnNestFor(type, pos);
-            rm.SpawnEnemyGameObject(pos, p.transform.eulerAngles.y + 180f, -1, type);
-            status = $"Spawned {DisplayName(type)}";
-        }
-
-        private float nextSpamBatch;
-        private int spawnedByAll;
-
-        /// <summary>
-        /// One of every monster, indoor and outdoor alike, wherever you're standing, scattered in a ring in
-        /// front of you so they don't all stack on one spot. Monsters out of their usual area may wander oddly.
-        /// </summary>
-        private int SpawnAll()
-        {
-            var p = Local;
-            var rm = RoundManager.Instance;
-            if (p == null || rm == null) return 0;
-            var flat = Vector3.ProjectOnPlane(p.gameplayCamera.transform.forward, Vector3.up).normalized;
-            var centre = p.transform.position + flat * 7f;
-            int count = 0;
-            // Only monsters that spawn naturally on some moon: helper/companion ones (Cadaver Bloom, Butler Bees)
-            // and cut ones (Lasso, Red pill) break or error when spawned on their own.
-            var natural = new HashSet<EnemyType>(StartOfRound.Instance.levels
-                .SelectMany(l => l.Enemies.Concat(l.OutsideEnemies).Concat(l.DaytimeEnemies))
-                .Select(e => e.enemyType).Where(t => t != null));
-            foreach (var type in enemyTypes.Where(t => natural.Contains(t)))
-            {
-                var offset = Random.insideUnitCircle * 5f;
-                var spot = RoundManager.Instance.GetNavMeshPosition(centre + new Vector3(offset.x, 0f, offset.y), default, 10f);
-                SpawnNestFor(type, spot);
-                rm.SpawnEnemyGameObject(spot, Random.Range(0f, 360f), -1, type);
-                count++;
-            }
-            spawnedByAll += count;
-            status = $"Spawned {count} monsters ({spawnedByAll} from Spawn ALL so far)";
-            return count;
         }
 
         private void PlayOnPreviews(string clipName)
@@ -648,20 +1211,56 @@ namespace Overstretched
                 anim.ReturnClip = clip.Ceiling ? "ceiling_hang" : "idle";
                 anim.Play(clipName, 0.15f, previewSpeed);
             }
-            status = $"Playing {clipName}";
+            Toast($"Playing {clipName}");
         }
 
-        private bool HostOnly()
+        // ================================================================== Settings
+
+        private void DrawSettings()
         {
-            if (IsHost) return true;
-            GUILayout.Label("Only the host can change these.");
-            return false;
+            BeginCard("Look", null, Accent);
+            Settings.UiScale = Slider("Menu size", Settings.UiScale, 0.6f, 1.8f, "0%", "");
+            Settings.UiOpacity = Slider("Background opacity", Settings.UiOpacity, 0.6f, 1f, "0%", "");
+            EndCard();
+
+            BeginCard("Spawn ALL", null, Red);
+            Settings.SpawnAllBatches = Mathf.RoundToInt(Slider("Copies of every monster per press", Settings.SpawnAllBatches, 1, 5, "0", "x"));
+            Settings.SpamInterval = Slider("Hold-to-spam delay", Settings.SpamInterval, 0.05f, 1f, "0.00", " s");
+            EndCard();
+
+            BeginCard("Saved settings", null, Green);
+            Note("Your toggles and sliders are saved when you close the menu and load on the next launch. " +
+                 "Noclip, freeze-all and freeze-clock always start off.");
+            GUILayout.Space(6);
+            Row(() =>
+            {
+                if (Button("Save now", Kind.Good)) { Settings.Save(); Toast("Settings saved"); }
+                if (Button("Reload saved")) { Settings.Load(); Toast("Settings reloaded"); }
+                if (Button("Reset everything", Kind.Danger)) { Settings.ResetToDefaults(); Toast("Everything back to default"); }
+            });
+            EndCard();
+
+            BeginCard("Keys", null, Blue);
+            Note("F8  open / close this menu\nDrag the header to move it, the corner dots to resize it.");
+            EndCard();
         }
 
-        private static float Slider(string label, float value, float min, float max)
+        // ================================================================== hooks for the automated self-test
+
+        internal void DebugShow(int showTab, int view, int list)
         {
-            GUILayout.Label($"{label}: {value:0.##}");
-            return GUILayout.HorizontalSlider(value, min, max);
+            if (showTab < 0) { if (open) SetOpen(false); return; }
+            if (!open) SetOpen(true);
+            tab = showTab;
+            monsterView = view;
+            spawnList = list;
+            showAddList = true;
         }
+        internal void DebugBring(EnemyAI e) => StartCoroutine(BringMonster(e));
+        internal void DebugGoTo(EnemyAI e) => GoToMonster(e);
+        internal void DebugRemove(EnemyAI e) => RemoveMonster(e);
+        internal int DebugSpawnAll() => SpawnAll();
+        internal void DebugExpandAll() { foreach (var t in enemyTypes) expanded.Add(DisplayName(t)); }
+        internal string DebugStatus => toast;
     }
 }

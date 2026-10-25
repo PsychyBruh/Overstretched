@@ -428,7 +428,7 @@ namespace Overstretched
         {
             base.OnCollideWithPlayer(other);
             var p = MeetsStandardPlayerCollisionConditions(other, inSpecialAnimation);
-            if (p == null || touchCooldown > 0f) return;
+            if (p == null || touchCooldown > 0f || Features.IsPet(this)) return;
             touchCooldown = 0.5f;
             int idx = IndexOf(p);
             StretchedNet.ToHost(this, Msg.Touch, (ref Unity.Netcode.FastBufferWriter w) => w.WriteValueSafe(idx));
@@ -674,7 +674,7 @@ namespace Overstretched
         public override void DoAIInterval()
         {
             base.DoAIInterval();
-            if (!IsServer || isEnemyDead || StartOfRound.Instance.allPlayersDead || Settings.IsFrozen(this)) return;
+            if (!IsServer || isEnemyDead || StartOfRound.Instance.allPlayersDead || Settings.IsFrozen(this) || Features.IsPet(this)) return;
             try { Think(AIIntervalTime); }
             catch (Exception e) { LogOnce("think", e); }
         }

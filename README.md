@@ -57,13 +57,21 @@ Press **F8** in game.
 
 | Tab | What's in it |
 |---|---|
-| **Player** | Move speed, jump, infinite sprint, god mode, no fall damage, noclip, heal, teleport to ship |
-| **Economy** | Set credits, set or complete the quota, scrap value and amount multipliers |
-| **World** | Time speed, freeze clock, lights on/off/flicker, set weather |
-| **Monsters** | **Spawned now**: every monster in the level with freeze, bring here, go to, kill, remove. **Spawn table**: per moon, turn monsters on/off, change their odds, add any monster to any moon |
+| **Player** | Move speed, jump, noclip, god mode, no fall damage, invisible to monsters, infinite stamina / battery / item uses, super strength |
+| **Vision** | Night vision, ESP for monsters, players, scrap and traps |
+| **Teleport** | Ship, main entrance, fire exits, players, loose scrap |
+| **Crew** | Revive all dead, heal, bring players to you |
+| **Items** | Spawn any item with a custom value, bring all scrap to the ship |
+| **Monsters** | Pinned **SPAWN ALL** and **HOLD TO SPAM**. **Live**: monsters grouped by type with freeze, pet, size, bring, go to, kill, remove. **Spawn one**: searchable list. **Spawn table**: per moon odds, add any monster to any moon |
+| **World** | Time speed, freeze clock, lights, open/close/lock every door, disable traps, weather |
+| **Ship** | Land / leave, free moons, free store items, free upgrades and decor |
+| **Economy** | Credits, quota, scrap value and amount multipliers |
+| **Chaos** | Horde, lights out, scatter players, low gravity, earthquake, random event |
 | **The Stretched** | Live AI status, spawn it, preview all 28 animations, spawn weight, silence radius, aggression, speed |
+| **Settings** | Menu size and opacity, Spawn ALL copies and spam speed, save / reset |
 
-Most tabs are host-only.
+Personal things (movement, vision, teleporting yourself) work for everyone; anything that changes the world
+or other players is host-only. Settings are saved between launches.
 
 ## Building from source
 

@@ -11,19 +11,53 @@ namespace Overstretched
     internal static class PlayerPatches
     {
         [HarmonyPrefix, HarmonyPatch(nameof(PlayerControllerB.DamagePlayer))]
-        private static bool DamagePlayer(PlayerControllerB __instance, bool fallDamage)
+        private static bool DamagePlayer(PlayerControllerB __instance, bool fallDamage, CauseOfDeath causeOfDeath)
         {
             if (!IsLocal(__instance)) return true;
+            LastDamage = $"{causeOfDeath} fallDamage={fallDamage}";
             if (Settings.GodMode) return false;
-            return !(fallDamage && Settings.NoFallDamage);
+            // Hard landings pass CauseOfDeath.Gravity without setting fallDamage, so check both.
+            return !(Settings.NoFallDamage && (fallDamage || causeOfDeath == CauseOfDeath.Gravity));
         }
 
         [HarmonyPrefix, HarmonyPatch(nameof(PlayerControllerB.KillPlayer))]
         private static bool KillPlayer(PlayerControllerB __instance) =>
             !(Settings.GodMode && IsLocal(__instance));
 
-        private static bool IsLocal(PlayerControllerB p) =>
+        // Landing damage is decided from these when you touch the ground; keep them harmless while the toggle is on.
+        [HarmonyPrefix, HarmonyPatch("PlayerHitGroundEffects")]
+        private static void PlayerHitGroundEffects(PlayerControllerB __instance)
+        {
+            if (!Settings.NoFallDamage || !IsLocal(__instance)) return;
+            __instance.takingFallDamage = false;
+            __instance.fallValueUncapped = Mathf.Max(__instance.fallValueUncapped, -30f);
+        }
+
+        internal static string LastDamage = "none"; // for the self-test
+
+        internal static bool IsLocal(PlayerControllerB p) =>
             StartOfRound.Instance != null && p == StartOfRound.Instance.localPlayerController;
+    }
+
+    /// <summary>Invisible to monsters: they can't target you and touching them does nothing.</summary>
+    [HarmonyPatch(typeof(EnemyAI))]
+    internal static class InvisiblePatches
+    {
+        [HarmonyPostfix, HarmonyPatch(nameof(EnemyAI.PlayerIsTargetable))]
+        private static void PlayerIsTargetable(PlayerControllerB playerScript, ref bool __result)
+        {
+            if (IsInvisible(playerScript)) __result = false;
+        }
+
+        [HarmonyPostfix, HarmonyPatch(nameof(EnemyAI.MeetsStandardPlayerCollisionConditions))]
+        private static void MeetsStandardPlayerCollisionConditions(ref PlayerControllerB __result)
+        {
+            if (IsInvisible(__result)) __result = null;
+        }
+
+        // Monster AI usually runs on the host, so other modded players' choices arrive over the network.
+        internal static bool IsInvisible(PlayerControllerB p) =>
+            p != null && (Settings.InvisiblePlayers.Contains(p.playerClientId) || (Settings.Invisible && PlayerPatches.IsLocal(p)));
     }
 
     [HarmonyPatch(typeof(TimeOfDay), nameof(TimeOfDay.MoveGlobalTime))]
@@ -60,6 +94,8 @@ namespace Overstretched
         private static bool Prefix(EnemyAI __instance)
         {
             if (__instance == null) return true;
+            // Pets: their own AI is off and Features walks them after their owner instead.
+            if (Features.IsPet(__instance)) return false;
             var agent = __instance.agent;
             if (!Settings.IsFrozen(__instance))
             {

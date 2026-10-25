@@ -10,13 +10,14 @@ namespace Overstretched
     {
         public const string Guid = "psychy.overstretched";
         public const string Name = "Overstretched";
-        public const string Version = "1.0.2";
+        public const string Version = "1.1.0";
 
         internal static ManualLogSource Log;
 
         private void Awake()
         {
             Log = Logger;
+            Settings.Load();
             var harmony = new Harmony(Guid);
             harmony.PatchAll();
             EnemyFreeze.Apply(harmony);
@@ -24,6 +25,7 @@ namespace Overstretched
             var host = new GameObject("Overstretched");
             DontDestroyOnLoad(host);
             host.hideFlags = HideFlags.HideAndDontSave;
+            host.AddComponent<Features>();
             host.AddComponent<ModMenu>();
             if (System.IO.File.Exists(AutoTest.FlagFile)) host.AddComponent<AutoTest>();
 

@@ -1,0 +1,25 @@
+# Never publish the game's own code or assets.
+LethalCompany-Decompiled/
+
+# Large third-party downloads used while building the model (re-download them, see README).
+downloads/
+
+# Build output
+bin/
+obj/
+publish/
+
+# Blender working files and old prototypes
+*.blend
+*.blend1
+tools/*
+!tools/stretched2/
+tools/stretched2/work/
+tools/stretched2/__pycache__/
+
+# Editor / OS clutter
+.vs/
+.vscode/
+*.user
+Thumbs.db
+.DS_Store

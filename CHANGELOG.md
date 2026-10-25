@@ -1,5 +1,10 @@
 # Changelog
 
+## 1.0.2
+
+- **Spawn ALL** now spawns every monster, indoor and outdoor, right in front of you wherever you are.
+  Monsters outside their usual area may wander oddly.
+
 ## 1.0.1
 
 - **Spawn ALL** button in Monsters > Spawned now: one of every monster that belongs where you stand (indoor or outdoor), scattered in front of you.

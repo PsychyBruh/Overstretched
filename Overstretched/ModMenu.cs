@@ -326,7 +326,7 @@ namespace Overstretched
             GUILayout.Space(8);
             if (me != null)
             {
-                GUILayout.Label($"Spawn ALL: one of every {(me.isInsideFactory ? "indoor" : "outdoor")} monster in front of you");
+                GUILayout.Label("Spawn ALL: one of every monster in front of you, indoor and outdoor");
                 GUILayout.BeginHorizontal();
                 if (GUILayout.Button("<b>SPAWN ALL</b>", GUILayout.Height(34))) SpawnAll();
                 // RepeatButton reports true every frame it's held: spawn a batch every 0.25 s while held.
@@ -606,16 +606,14 @@ namespace Overstretched
         private int spawnedByAll;
 
         /// <summary>
-        /// One of every monster that belongs where you're standing (indoor monsters inside the facility,
-        /// outdoor ones outside: the wrong kind gets stuck trying to path to nodes that aren't there),
-        /// scattered in a ring in front of you so they don't all stack on one spot.
+        /// One of every monster, indoor and outdoor alike, wherever you're standing, scattered in a ring in
+        /// front of you so they don't all stack on one spot. Monsters out of their usual area may wander oddly.
         /// </summary>
         private int SpawnAll()
         {
             var p = Local;
             var rm = RoundManager.Instance;
             if (p == null || rm == null) return 0;
-            bool inside = p.isInsideFactory;
             var flat = Vector3.ProjectOnPlane(p.gameplayCamera.transform.forward, Vector3.up).normalized;
             var centre = p.transform.position + flat * 7f;
             int count = 0;
@@ -624,7 +622,7 @@ namespace Overstretched
             var natural = new HashSet<EnemyType>(StartOfRound.Instance.levels
                 .SelectMany(l => l.Enemies.Concat(l.OutsideEnemies).Concat(l.DaytimeEnemies))
                 .Select(e => e.enemyType).Where(t => t != null));
-            foreach (var type in enemyTypes.Where(t => t.isOutsideEnemy != inside && natural.Contains(t)))
+            foreach (var type in enemyTypes.Where(t => natural.Contains(t)))
             {
                 var offset = Random.insideUnitCircle * 5f;
                 var spot = RoundManager.Instance.GetNavMeshPosition(centre + new Vector3(offset.x, 0f, offset.y), default, 10f);

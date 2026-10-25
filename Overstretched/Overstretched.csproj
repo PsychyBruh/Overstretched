@@ -38,7 +38,8 @@
     <EmbeddedResource Include="Assets\Stretched\*.png" />
   </ItemGroup>
 
-  <Target Name="DeployToGame" AfterTargets="Build">
+  <!-- Build with -p:SkipDeploy=true to leave the game folder alone (e.g. while someone is playing). -->
+  <Target Name="DeployToGame" AfterTargets="Build" Condition="'$(SkipDeploy)' != 'true'">
     <MakeDir Directories="$(GameDir)\BepInEx\plugins\Overstretched" />
     <Copy SourceFiles="$(TargetPath)" DestinationFolder="$(GameDir)\BepInEx\plugins\Overstretched" />
   </Target>

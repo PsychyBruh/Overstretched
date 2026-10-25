@@ -155,6 +155,37 @@ namespace Overstretched
             Settings.FrozenEnemies.Clear();
             yield return new WaitForSeconds(1.5f);
             Log($"menu: removed vanilla: {vanilla == null}");
+            // Spawn ALL, spammed: three batches a quarter-second apart, like holding the spam button.
+            Settings.FreezeEnemies = true; // frozen before they arrive, so the crowd can't kill the test player
+            int spawned = 0;
+            for (int i = 0; i < 3; i++) { spawned += menu.DebugSpawnAll(); yield return new WaitForSeconds(0.25f); }
+            yield return new WaitForSeconds(5f);
+            var live = RoundManager.Instance.SpawnedEnemies.Where(e => e != null).ToList();
+            Log($"menu: spawn all x3 requested {spawned}, alive {live.Count}: " +
+                string.Join(", ", live.GroupBy(e => e.enemyType.enemyName).Select(g => $"{g.Key} x{g.Count()}")));
+            yield return new WaitForSeconds(2f);
+            foreach (var e in live) menu.DebugRemove(e);
+            Settings.FreezeEnemies = false;
+            yield return new WaitForSeconds(2f);
+            Log($"menu: after remove all, alive {RoundManager.Instance.SpawnedEnemies.Count(e => e != null)}; player dead={me.isPlayerDead}");
+
+            // Outdoor Spawn ALL, which has to include Old Birds (they need a nest to exist).
+            me.TeleportPlayer(StartOfRound.Instance.playerSpawnPositions[0].position + Vector3.forward * 12f);
+            me.isInsideFactory = false;
+            me.isInHangarShipRoom = false;
+            me.isInElevator = false;
+            yield return new WaitForSeconds(1.5f);
+            Settings.FreezeEnemies = true;
+            int outdoor = menu.DebugSpawnAll();
+            yield return new WaitForSeconds(5f);
+            var outside = RoundManager.Instance.SpawnedEnemies.Where(e => e != null).ToList();
+            var birds = outside.Where(e => e is RadMechAI).ToList();
+            Log($"menu: outdoor spawn all requested {outdoor}, alive {outside.Count}: " +
+                string.Join(", ", outside.GroupBy(e => e.enemyType.enemyName).Select(g => $"{g.Key} x{g.Count()}")));
+            Log($"menu: old birds {birds.Count}, alive and visible: {birds.Count(b => !b.isEnemyDead && b.gameObject.activeInHierarchy)}");
+            foreach (var e in outside) menu.DebugRemove(e);
+            Settings.FreezeEnemies = false;
+            yield return new WaitForSeconds(2f);
             menu.DebugShow(-1, 0, 0);
             entrance.TeleportPlayer(); // back inside near the entrance for the Stretched test
             yield return new WaitForSeconds(2f);

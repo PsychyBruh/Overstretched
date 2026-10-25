@@ -96,10 +96,52 @@ namespace Overstretched
 
         private void RefreshEnemyTypes()
         {
-            enemyTypes = Resources.FindObjectsOfTypeAll<EnemyType>()
+            // Every enemy registered with the network (all of them, whatever moon you're on) plus anything
+            // else loaded in memory, e.g. modded enemies.
+            var fromPrefabs = NetworkManager.Singleton != null
+                ? NetworkManager.Singleton.NetworkConfig.Prefabs.Prefabs
+                    .Select(p => p.Prefab != null ? p.Prefab.GetComponent<EnemyAI>() : null)
+                    .Where(ai => ai != null && ai.enemyType != null)
+                    .Select(ai => ai.enemyType)
+                : Enumerable.Empty<EnemyType>();
+            enemyTypes = fromPrefabs.Concat(Resources.FindObjectsOfTypeAll<EnemyType>())
                 .Where(e => e != null && e.enemyPrefab != null)
                 .GroupBy(e => e.enemyName).Select(g => g.First())
-                .OrderBy(e => e.enemyName).ToList();
+                .OrderBy(DisplayName).ToList();
+        }
+
+        // Internal names that don't match what players call them in game.
+        private static readonly Dictionary<string, string> FriendlyNames = new Dictionary<string, string>
+        {
+            { "RadMech", "Old Bird" }, { "Flowerman", "Bracken" }, { "Spring", "Coil-Head" }, { "Crawler", "Thumper" },
+            { "Centipede", "Snare Flea" }, { "Puffer", "Spore Lizard" }, { "Blob", "Hygrodere" }, { "Girl", "Ghost Girl" },
+            { "MouthDog", "Eyeless Dog" }, { "ForestGiant", "Forest Keeper" }, { "Red Locust Bees", "Circuit Bees" },
+            { "Docile Locust Bees", "Roaming Locusts" }, { "Hoarding bug", "Hoarder Bug" }, { "SandSpider", "Bunker Spider" },
+            { "ClaySurgeon", "Barber" }, { "Bush Wolf", "Kidnapper Fox" }, { "CaveDweller", "Maneater" },
+            { "GiantKiwi", "Giant Sapsucker" }, { "SandWorm", "Earth Leviathan" },
+        };
+
+        private static string DisplayName(EnemyType t) =>
+            FriendlyNames.TryGetValue(t.enemyName, out var friendly) ? friendly : t.enemyName;
+
+        /// <summary>
+        /// Enemies like the Old Bird only exist attached to a nest: without one the game deletes them on the host
+        /// and leaves them invisible and dead for everyone else. Make a nest at the spot first, synced to clients.
+        /// </summary>
+        private static void SpawnNestFor(EnemyType type, Vector3 position)
+        {
+            if (!type.requireNestObjectsToSpawn || type.nestSpawnPrefab == null) return;
+            var rm = RoundManager.Instance;
+            var nest = Instantiate(type.nestSpawnPrefab, position, Quaternion.Euler(0f, Random.Range(0f, 360f), 0f));
+            var netObj = nest.GetComponentInChildren<NetworkObject>();
+            if (netObj != null) netObj.Spawn(destroyWithScene: true);
+            var nestScript = nest.GetComponent<EnemyAINestSpawnObject>();
+            if (nestScript == null) return;
+            rm.enemyNestSpawnObjects.RemoveAll(n => n == null);
+            rm.enemyNestSpawnObjects.Add(nestScript);
+            type.nestsSpawned++;
+            rm.SyncNestSpawnObjectsOrderServerRpc(rm.enemyNestSpawnObjects
+                .Select(n => new NetworkObjectReference(n.GetComponentInChildren<NetworkObject>())).ToArray());
         }
 
         private void OnGUI()
@@ -108,6 +150,7 @@ namespace Overstretched
             GUI.backgroundColor = new Color(0.1f, 0.1f, 0.1f, 0.95f);
             GUI.skin.label.richText = true;
             GUI.skin.toggle.richText = true;
+            GUI.skin.button.richText = true;
             window = GUI.Window(0x4C50, window, DrawWindow, $"Overstretched  (F8)   {(IsHost ? "HOST" : "CLIENT")}");
         }
 
@@ -266,7 +309,7 @@ namespace Overstretched
                     : e.currentBehaviourState != null && !string.IsNullOrEmpty(e.currentBehaviourState.name)
                         ? e.currentBehaviourState.name : $"state {e.currentBehaviourStateIndex}";
                 float dist = me != null ? Vector3.Distance(me.transform.position, e.transform.position) : 0f;
-                GUILayout.Label($"<b>{e.enemyType.enemyName}</b>  [{state}]  {(e.isOutside ? "outside" : "inside")}  {dist:0}m" +
+                GUILayout.Label($"<b>{DisplayName(e.enemyType)}</b>  [{state}]  {(e.isOutside ? "outside" : "inside")}  {dist:0}m" +
                                 (frozen ? "  <color=cyan>FROZEN</color>" : ""));
                 GUILayout.BeginHorizontal();
                 if (GUILayout.Button(Settings.FrozenEnemies.Contains(e) ? "Unfreeze" : "Freeze"))
@@ -281,12 +324,28 @@ namespace Overstretched
             }
 
             GUILayout.Space(8);
+            if (me != null)
+            {
+                GUILayout.Label($"Spawn ALL: one of every {(me.isInsideFactory ? "indoor" : "outdoor")} monster in front of you");
+                GUILayout.BeginHorizontal();
+                if (GUILayout.Button("<b>SPAWN ALL</b>", GUILayout.Height(34))) SpawnAll();
+                // RepeatButton reports true every frame it's held: spawn a batch every 0.25 s while held.
+                if (GUILayout.RepeatButton("HOLD TO SPAM", GUILayout.Height(34)) && Time.unscaledTime >= nextSpamBatch)
+                {
+                    nextSpamBatch = Time.unscaledTime + 0.25f;
+                    SpawnAll();
+                }
+                GUILayout.EndHorizontal();
+                GUILayout.Label($"Monsters in the level: {alive.Count}. Too many will lag everyone; 'Remove all' clears them.");
+            }
+
+            GUILayout.Space(6);
             GUILayout.Label("Spawn one in front of you:");
             for (int i = 0; i < enemyTypes.Count; i += 3)
             {
                 GUILayout.BeginHorizontal();
                 for (int j = i; j < Mathf.Min(i + 3, enemyTypes.Count); j++)
-                    if (GUILayout.Button(enemyTypes[j].enemyName)) SpawnEnemy(enemyTypes[j]);
+                    if (GUILayout.Button(DisplayName(enemyTypes[j]))) SpawnEnemy(enemyTypes[j]);
                 GUILayout.EndHorizontal();
             }
         }
@@ -332,7 +391,7 @@ namespace Overstretched
             else e.transform.position = hit.position;
             e.serverPosition = hit.position;
             e.SyncPositionToClients();
-            status = $"Brought {e.enemyType.enemyName} to you";
+            status = $"Brought {DisplayName(e.enemyType)} to you";
         }
 
         private void GoToMonster(EnemyAI e)
@@ -344,7 +403,7 @@ namespace Overstretched
             me.isInsideFactory = !e.isOutside;
             me.isInHangarShipRoom = false;
             me.isInElevator = false;
-            status = $"Teleported to {e.enemyType.enemyName}";
+            status = $"Teleported to {DisplayName(e.enemyType)}";
         }
 
         private void DrawSpawnTable()
@@ -379,7 +438,7 @@ namespace Overstretched
                 if (entry.enemyType == null) continue;
                 GUILayout.BeginHorizontal();
                 bool on = entry.rarity > 0;
-                bool nowOn = GUILayout.Toggle(on, " " + entry.enemyType.enemyName, GUILayout.Width(170));
+                bool nowOn = GUILayout.Toggle(on, " " + DisplayName(entry.enemyType), GUILayout.Width(170));
                 if (nowOn != on)
                 {
                     if (!nowOn) { savedRarity[entry] = entry.rarity; entry.rarity = 0; }
@@ -404,10 +463,10 @@ namespace Overstretched
             {
                 GUILayout.BeginHorizontal();
                 for (int j = i; j < Mathf.Min(i + 3, candidates.Count); j++)
-                    if (GUILayout.Button(candidates[j].enemyName))
+                    if (GUILayout.Button(DisplayName(candidates[j])))
                     {
                         list.Add(new SpawnableEnemyWithRarity(candidates[j], 25));
-                        status = $"{candidates[j].enemyName} can now spawn on {level.PlanetName}";
+                        status = $"{DisplayName(candidates[j])} can now spawn on {level.PlanetName}";
                     }
                 GUILayout.EndHorizontal();
             }
@@ -426,6 +485,7 @@ namespace Overstretched
         internal void DebugBring(EnemyAI e) => StartCoroutine(BringMonster(e));
         internal void DebugGoTo(EnemyAI e) => GoToMonster(e);
         internal void DebugRemove(EnemyAI e) => RemoveMonster(e);
+        internal int DebugSpawnAll() { if (enemyTypes.Count == 0) RefreshEnemyTypes(); return SpawnAll(); }
         internal string DebugStatus => status;
 
         private int RestoredRarity(SpawnableEnemyWithRarity entry) =>
@@ -537,8 +597,44 @@ namespace Overstretched
                 ? hit.point - cam.forward * 0.5f
                 : cam.position + cam.forward * 6f;
             pos = RoundManager.Instance.GetNavMeshPosition(pos, default, 10f);
+            SpawnNestFor(type, pos);
             rm.SpawnEnemyGameObject(pos, p.transform.eulerAngles.y + 180f, -1, type);
-            status = $"Spawned {type.enemyName}";
+            status = $"Spawned {DisplayName(type)}";
+        }
+
+        private float nextSpamBatch;
+        private int spawnedByAll;
+
+        /// <summary>
+        /// One of every monster that belongs where you're standing (indoor monsters inside the facility,
+        /// outdoor ones outside: the wrong kind gets stuck trying to path to nodes that aren't there),
+        /// scattered in a ring in front of you so they don't all stack on one spot.
+        /// </summary>
+        private int SpawnAll()
+        {
+            var p = Local;
+            var rm = RoundManager.Instance;
+            if (p == null || rm == null) return 0;
+            bool inside = p.isInsideFactory;
+            var flat = Vector3.ProjectOnPlane(p.gameplayCamera.transform.forward, Vector3.up).normalized;
+            var centre = p.transform.position + flat * 7f;
+            int count = 0;
+            // Only monsters that spawn naturally on some moon: helper/companion ones (Cadaver Bloom, Butler Bees)
+            // and cut ones (Lasso, Red pill) break or error when spawned on their own.
+            var natural = new HashSet<EnemyType>(StartOfRound.Instance.levels
+                .SelectMany(l => l.Enemies.Concat(l.OutsideEnemies).Concat(l.DaytimeEnemies))
+                .Select(e => e.enemyType).Where(t => t != null));
+            foreach (var type in enemyTypes.Where(t => t.isOutsideEnemy != inside && natural.Contains(t)))
+            {
+                var offset = Random.insideUnitCircle * 5f;
+                var spot = RoundManager.Instance.GetNavMeshPosition(centre + new Vector3(offset.x, 0f, offset.y), default, 10f);
+                SpawnNestFor(type, spot);
+                rm.SpawnEnemyGameObject(spot, Random.Range(0f, 360f), -1, type);
+                count++;
+            }
+            spawnedByAll += count;
+            status = $"Spawned {count} monsters ({spawnedByAll} from Spawn ALL so far)";
+            return count;
         }
 
         private void PlayOnPreviews(string clipName)

@@ -33,6 +33,87 @@ namespace Overstretched
 
         private static void Log(string msg) => Plugin.Log.LogInfo("[AUTOTEST] " + msg);
 
+        private static void LogPack()
+        {
+            Log($"pack: {BepInEx.Bootstrap.Chainloader.PluginInfos.Count} plugins loaded; pack present {ModPack.Present}");
+            if (!ModPack.Present) return;
+            foreach (var p in ModPack.Pack.packages.Where(p => p.top))
+                Log($"pack: {p.id} {p.version} -> {(ModPack.PluginsOf(p).Count > 0 ? "loaded " + string.Join(",", ModPack.PluginsOf(p).Select(i => i.Metadata.GUID)) : "no plugin of its own")}");
+            Log($"pack: LLL {Compat.Has(Compat.LethalLevelLoader)}, WeatherRegistry {Compat.Has(Compat.WeatherRegistry)}, Mirage {Compat.Has(Compat.Mirage)}");
+        }
+
+        private IEnumerable<object> ModdedMoon(ModMenu menu, GameNetcodeStuff.PlayerControllerB me)
+        {
+            var sor = StartOfRound.Instance;
+            var custom = Compat.CustomLevels();
+            Log($"pack: {custom.Count} modded moons: {string.Join(", ", custom.Keys.Select(l => l.PlanetName).Take(25))}");
+            if (custom.Count == 0) yield break;
+            Features.ForceLeave();
+            float end = Time.realtimeSinceStartup + 120f;
+            while (!sor.inShipPhase && Time.realtimeSinceStartup < end) yield return new WaitForSeconds(1f);
+            yield return new WaitForSeconds(3f);
+            Log($"pack: back in orbit {sor.inShipPhase}");
+            var target = custom.Keys.FirstOrDefault(l => l.PlanetName.Contains("Harloth")) ?? custom.Keys.First();
+            Features.RouteTo(target);
+            end = Time.realtimeSinceStartup + 60f;
+            while ((sor.currentLevel != target || sor.travellingToNewLevel) && Time.realtimeSinceStartup < end) yield return new WaitForSeconds(1f);
+            Log($"pack: routed to {sor.currentLevel.PlanetName} (wanted {target.PlanetName})");
+            var weathers = Compat.Weathers();
+            var clear = weathers.FirstOrDefault(w => w.Name == "None") ?? weathers.First();
+            Compat.SetWeather(sor.currentLevel, clear);
+            Log($"pack: {weathers.Count} weathers ({string.Join(", ", weathers.Select(w => w.Name))}); set {clear.Name} -> {Compat.CurrentWeather(sor.currentLevel)}");
+            menu.DebugShow(7, ModMenu.ViewLive, 0);
+            yield return new WaitForSeconds(1f);
+            Shot("ship_moons");
+            yield return new WaitForSeconds(0.3f);
+            menu.DebugShow(11, ModMenu.ViewLive, 0);
+            menu.DebugOpenMod("IAmBatby-LethalLevelLoader");
+            yield return new WaitForSeconds(1f);
+            Shot("mods_tab");
+            yield return new WaitForSeconds(0.3f);
+            menu.DebugShow(-1, 0, 0);
+
+            sor.StartGame();
+            float landStart = Time.realtimeSinceStartup;
+            end = Time.realtimeSinceStartup + 360f;
+            while (!(sor.shipHasLanded && RoundManager.Instance.dungeonCompletedGenerating) && Time.realtimeSinceStartup < end)
+                yield return new WaitForSeconds(1f);
+            Log($"pack: landed on {sor.currentLevel.PlanetName}: {sor.shipHasLanded} after {Time.realtimeSinceStartup - landStart:0}s, dungeon generated {RoundManager.Instance.dungeonCompletedGenerating}");
+            Log($"pack: The Stretched in {sor.currentLevel.PlanetName}'s spawn list: {sor.currentLevel.Enemies.Any(e => e.enemyType == StretchedRegistry.Type)}");
+            yield return new WaitForSeconds(3f);
+            var entrance = FindObjectsOfType<EntranceTeleport>().FirstOrDefault(e => e.isEntranceToBuilding && e.entranceId == 0);
+            if (entrance != null)
+            {
+                entrance.FindExitPoint();
+                entrance.TeleportPlayer();
+                yield return new WaitForSeconds(3f);
+            }
+            Log($"pack: inside {me.isInsideFactory} on {sor.currentLevel.PlanetName}");
+            Settings.FreezeEnemies = true;
+            Settings.SpawnAllModded = true;
+            int spawned = menu.DebugSpawnAll();
+            yield return new WaitForSeconds(5f);
+            var live = RoundManager.Instance.SpawnedEnemies.Where(e => e != null).ToList();
+            Log($"pack: spawn all (with modded) requested {spawned}, alive {live.Count}, modded alive {live.Count(e => Features.IsModded(e.enemyType))}: " +
+                string.Join(", ", live.Where(e => Features.IsModded(e.enemyType)).Select(e => e.enemyType.enemyName).Distinct()));
+            var modded = live.Where(e => e != null && Features.IsModded(e.enemyType)).ToList();
+            yield return new WaitForSeconds(1f); // let anything still dropping onto the floor settle
+            var startPos = modded.ToDictionary(e => e, e => e.transform.position);
+            yield return new WaitForSeconds(4f);
+            var moved = modded.Where(e => e != null && Vector3.Distance(startPos[e], e.transform.position) > 0.5f).Select(e => $"{e.enemyType.enemyName} {Vector3.Distance(startPos[e], e.transform.position):0.0}m").ToList();
+            Log($"pack: frozen modded monsters that still moved in 4s: {moved.Count}/{modded.Count} {string.Join(", ", moved)}; player dead {me.isPlayerDead}");
+            menu.DebugShow(ModMenu.MonstersTab, ModMenu.ViewLive, 0);
+            yield return new WaitForSeconds(1f);
+            Shot("modded_monsters");
+            yield return new WaitForSeconds(0.3f);
+            menu.DebugShow(-1, 0, 0);
+            foreach (var e in live) menu.DebugRemove(e);
+            Settings.FreezeEnemies = false;
+            Settings.SpawnAllModded = false;
+            yield return new WaitForSeconds(2f);
+            Log($"pack: after remove all alive {RoundManager.Instance.SpawnedEnemies.Count(e => e != null)}; player dead {me.isPlayerDead}");
+        }
+
         private static void Shot(string name)
         {
             var dir = Path.Combine(BepInEx.Paths.PluginPath, "Overstretched", "shots");
@@ -43,7 +124,7 @@ namespace Overstretched
         private IEnumerator Guarded()
         {
             var run = Run();
-            float deadline = Time.realtimeSinceStartup + 900f; // boot + landing alone can take several minutes
+            float deadline = Time.realtimeSinceStartup + 2400f; // boot + landing take several minutes, longer with the mod pack
             while (true)
             {
                 object current;
@@ -97,6 +178,36 @@ namespace Overstretched
             yield return WaitFor(() => FindObjectOfType<MenuManager>() != null && GameNetworkManager.Instance != null, 90, "main menu");
             yield return new WaitForSeconds(4f);
             Log($"registry prefab={(StretchedRegistry.Prefab != null)} type={(StretchedRegistry.Type != null)}");
+            LogPack();
+            // "boot" in the flag file: only check what loaded (used to test the Mods tab's on/off switches).
+            if (File.ReadAllText(FlagFile).Trim() == "boot")
+            {
+                yield return new WaitForSeconds(2f);
+                Shot("main_menu");
+                yield return new WaitForSeconds(0.5f);
+                foreach (var line in File.Exists(FlagFile + ".toggle") ? File.ReadAllLines(FlagFile + ".toggle") : new string[0])
+                {
+                    if (line.Trim() == "upgrade")
+                    {
+                        // Same as clicking "Install mod pack" on the main menu popup.
+                        PackUpgrade.Begin();
+                        float until = Time.realtimeSinceStartup + 120f;
+                        while (PackUpgrade.StatusText == null || PackUpgrade.Busy)
+                        {
+                            if (Time.realtimeSinceStartup > until) break;
+                            yield return new WaitForSeconds(0.5f);
+                        }
+                        Log($"upgrade: launched {PackUpgrade.Launched}: {PackUpgrade.StatusText}");
+                        continue;
+                    }
+                    var parts = line.Split(' ');
+                    var pkg = ModPack.Find(parts[1]);
+                    if (pkg == null) continue;
+                    Log($"pack: {pkg.id} loaded={ModPack.PluginsOf(pkg).Count > 0} offOnDisk={ModPack.IsDisabledOnDisk(pkg)}; switching {parts[0]}: " +
+                        (ModPack.SetEnabled(pkg, parts[0] == "on") ?? "ok"));
+                }
+                yield break;
+            }
 
             var gnm = GameNetworkManager.Instance;
             gnm.currentSaveFileName = "LPAutoTestFile"; // never touch the player's saves
@@ -199,7 +310,7 @@ namespace Overstretched
             yield return new WaitForSeconds(2f);
 
             // ---- Menu screenshots, one per tab (outside, by the ship).
-            for (int t = 0; t < 12; t++)
+            for (int t = 0; t < ModMenu.TabCount; t++)
             {
                 menu.DebugShow(t, ModMenu.ViewLive, 0);
                 yield return new WaitForSeconds(0.8f);
@@ -388,6 +499,9 @@ namespace Overstretched
             Features.ReviveAll();
             yield return new WaitForSeconds(3f);
             Log($"feature: revive all -> dead {me.isPlayerDead}, health {me.health}, on ship {me.isInHangarShipRoom}");
+
+            // ---- Mod pack: fly to a modded moon and play on it.
+            foreach (var step in ModdedMoon(menu, me)) yield return step;
             Log("PASSED script");
         }
     }

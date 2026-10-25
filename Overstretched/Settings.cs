@@ -56,6 +56,7 @@ namespace Overstretched
         public static float StretchedSilenceRadius = 15f;
         public static float StretchedAggression = 1f;
         public static float StretchedSpeed = 1f;
+        public static bool StretchedVoiceTheft = true;
 
         // Menu
         public static float UiScale = 1f;
@@ -64,6 +65,9 @@ namespace Overstretched
         public static float SpamInterval = 0.25f;
         public static int HordeSize = 8;
         public static float ChaosSeconds = 30f;
+        public static bool SpawnAllModded;
+        public static bool PackPromptDismissed;
+        public static int MenuKey = (int)UnityEngine.InputSystem.Key.F8;
 
         // ------------------------------------------------------------------ saving
 

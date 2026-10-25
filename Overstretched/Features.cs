@@ -35,8 +35,9 @@ namespace Overstretched
             MenuNet.EnsureRegistered();
             ApplyPlayer();
             ApplyWorld();
-            if (IsHost) UpdatePets();
-            if (InRound) VoiceThief.Tick();
+            if (IsHost) { UpdatePets(); Compat.UpdateCompanionPause(); }
+            if (InRound && Settings.StretchedVoiceTheft) VoiceThief.Tick();
+            SendPackList();
         }
 
         private void LateUpdate() => ApplyNightVision();
@@ -563,7 +564,17 @@ namespace Overstretched
 
         internal static HashSet<EnemyType> NaturalTypes() => new HashSet<EnemyType>(StartOfRound.Instance.levels
             .SelectMany(l => l.Enemies.Concat(l.OutsideEnemies).Concat(l.DaytimeEnemies))
-            .Select(e => e.enemyType).Where(t => t != null && t.enemyPrefab != null));
+            .Select(e => e.enemyType).Where(t => t != null && t.enemyPrefab != null)
+            .Where(t => Settings.SpawnAllModded || !IsModded(t)));
+
+        /// <summary>Added by another mod (not the base game, not The Stretched).</summary>
+        internal static bool IsModded(EnemyType t)
+        {
+            var ai = t != null && t.enemyPrefab != null ? t.enemyPrefab.GetComponent<EnemyAI>() : null;
+            if (ai == null) return false;
+            var asm = ai.GetType().Assembly;
+            return asm != typeof(EnemyAI).Assembly && asm != typeof(StretchedAI).Assembly;
+        }
 
         // ================================================================== chaos (host)
 
@@ -618,7 +629,9 @@ namespace Overstretched
             {
                 var ring = Random.insideUnitCircle.normalized * Random.Range(6f, 11f);
                 var spot = rm.GetNavMeshPosition(victim.transform.position + new Vector3(ring.x, 0f, ring.y), default, 10f);
-                rm.SpawnEnemyGameObject(spot, Random.Range(0f, 360f), -1, types[Random.Range(0, types.Count)]);
+                var type = types[Random.Range(0, types.Count)];
+                try { rm.SpawnEnemyGameObject(spot, Random.Range(0f, 360f), -1, type); }
+                catch (System.Exception e) { Plugin.Log.LogWarning($"Couldn't spawn {DisplayName(type)}: {e.Message}"); }
             }
             Notify($"A horde of {count} is coming for {victim.playerUsername}");
         }
@@ -649,6 +662,39 @@ namespace Overstretched
                 beat++;
                 yield return new WaitForSeconds(0.35f);
             }
+        }
+
+        // ================================================================== lobby mod check
+
+        private PlayerControllerB packListSentFor;
+
+        /// <summary>Joining clients tell the host which shared mods they run, so missing ones are spotted at once.</summary>
+        private void SendPackList()
+        {
+            var nm = NetworkManager.Singleton;
+            var me = Local;
+            if (nm == null || nm.IsServer || !nm.IsConnectedClient || me == null || me == packListSentFor || !me.isPlayerControlled) return;
+            packListSentFor = me;
+            int index = (int)me.playerClientId;
+            string list = string.Join(";", ModPack.SharedPluginList());
+            MenuNet.ToHost(MenuNet.Msg.PackList, (ref FastBufferWriter w) => { w.WriteValueSafe(index); w.WriteValueSafe(list); });
+        }
+
+        private static void ComparePackList(int index, string theirs)
+        {
+            var mine = new HashSet<string>(ModPack.SharedPluginList());
+            var their = new HashSet<string>(theirs.Split(new[] { ';' }, System.StringSplitOptions.RemoveEmptyEntries));
+            var missing = mine.Except(their).Select(s => s.Split('@')[0]).ToList();
+            var extra = their.Except(mine).Select(s => s.Split('@')[0]).ToList();
+            if (missing.Count == 0 && extra.Count == 0) return;
+            var players = StartOfRound.Instance.allPlayerScripts;
+            string who = index >= 0 && index < players.Length ? players[index].playerUsername : "A player";
+            string text = $"{who}'s mods don't match the host's" +
+                          (missing.Count > 0 ? $"; missing {missing.Count}: {string.Join(", ", missing.Take(4))}" : "") +
+                          (extra.Count > 0 ? $"; extra {extra.Count}: {string.Join(", ", extra.Take(4))}" : "") +
+                          ". Update with the Overstretched installer.";
+            Plugin.Log.LogWarning(text);
+            MenuNet.ToAll(MenuNet.Msg.PackMismatch, (ref FastBufferWriter w) => { w.WriteValueSafe(index); w.WriteValueSafe(text); });
         }
 
         // ================================================================== network messages
@@ -731,6 +777,25 @@ namespace Overstretched
                         if (HUDManager.Instance != null) HUDManager.Instance.DisplayTip("Low gravity", $"Gravity is weak for {gravity:0} seconds. Jump!");
                     }
                     break;
+
+                case MenuNet.Msg.PackList:
+                {
+                    reader.ReadValueSafe(out int index);
+                    reader.ReadValueSafe(out string list);
+                    if (IsHost) ComparePackList(index, list);
+                    break;
+                }
+
+                case MenuNet.Msg.PackMismatch:
+                {
+                    reader.ReadValueSafe(out int index);
+                    reader.ReadValueSafe(out string text);
+                    if (!fromHost) break;
+                    Notify(text);
+                    if ((IsHost || (me != null && (int)me.playerClientId == index)) && HUDManager.Instance != null)
+                        HUDManager.Instance.DisplayTip("Mods don't match", text, isWarning: true);
+                    break;
+                }
 
                 case MenuNet.Msg.Invisible:
                 {

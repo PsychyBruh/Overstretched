@@ -75,20 +75,60 @@ namespace Overstretched
         private static readonly string[] Methods = { "Update", "LateUpdate", "FixedUpdate", "DoAIInterval", "OnCollideWithPlayer" };
         private static readonly HashSet<EnemyAI> stoppedByUs = new HashSet<EnemyAI>();
 
+        private static Harmony harmonyInstance;
+        private static readonly HashSet<System.Type> patchedTypes = new HashSet<System.Type>();
+
         public static void Apply(Harmony harmony)
+        {
+            harmonyInstance = harmony;
+            int count = PatchTypes(typeof(EnemyAI).Assembly.GetTypes());
+            Plugin.Log.LogInfo($"Freeze hooks on {count} monster methods");
+        }
+
+        /// <summary>
+        /// Monsters added by other mods live in assemblies that may load after ours, so their overrides get the
+        /// same freeze prefix once everything has loaded (called when the game finishes initialising).
+        /// </summary>
+        public static void PatchModdedMonsters()
+        {
+            if (harmonyInstance == null) return;
+            int count = 0;
+            foreach (var asm in System.AppDomain.CurrentDomain.GetAssemblies())
+            {
+                if (asm == typeof(EnemyAI).Assembly || asm == typeof(EnemyFreeze).Assembly || asm.IsDynamic) continue;
+                System.Type[] types;
+                try { types = asm.GetTypes(); }
+                catch (ReflectionTypeLoadException e) { types = e.Types.Where(t => t != null).ToArray(); }
+                catch { continue; }
+                try { count += PatchTypes(types); }
+                catch (System.Exception e) { Plugin.Log.LogWarning($"Couldn't add freeze hooks to {asm.GetName().Name}: {e.Message}"); }
+            }
+            if (count > 0) Plugin.Log.LogInfo($"Freeze hooks on {count} modded monster methods");
+        }
+
+        private static int PatchTypes(IEnumerable<System.Type> types)
         {
             var prefix = new HarmonyMethod(typeof(EnemyFreeze), nameof(Prefix));
             int count = 0;
-            var types = typeof(EnemyAI).Assembly.GetTypes().Where(t => t == typeof(EnemyAI) || t.IsSubclassOf(typeof(EnemyAI)));
-            foreach (var type in types)
+            // Open generic types (a mod's shared AI base class) can't be hooked; their monsters are paused another way.
+            foreach (var type in types.Where(t => (t == typeof(EnemyAI) || t.IsSubclassOf(typeof(EnemyAI))) && !t.ContainsGenericParameters))
+            {
+                if (!patchedTypes.Add(type)) continue;
                 foreach (var name in Methods)
                 {
                     var method = type.GetMethod(name, BindingFlags.Instance | BindingFlags.Public | BindingFlags.NonPublic | BindingFlags.DeclaredOnly);
-                    if (method == null || method.IsAbstract || method.GetMethodBody() == null) continue;
-                    harmony.Patch(method, prefix: prefix);
-                    count++;
+                    if (method == null || method.IsAbstract || method.IsGenericMethod || method.GetMethodBody() == null) continue;
+                    try { harmonyInstance.Patch(method, prefix: prefix); count++; }
+                    catch (System.Exception e) { Plugin.Log.LogWarning($"Couldn't hook {type.Name}.{name}: {e.Message}"); }
                 }
-            Plugin.Log.LogInfo($"Freeze hooks on {count} monster methods");
+            }
+            return count;
+        }
+
+        [HarmonyPatch(typeof(MenuManager), "Start")]
+        private static class AfterLoad
+        {
+            private static void Postfix() => PatchModdedMonsters();
         }
 
         private static bool Prefix(EnemyAI __instance)

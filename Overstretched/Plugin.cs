@@ -6,11 +6,14 @@ using UnityEngine;
 namespace Overstretched
 {
     [BepInPlugin(Guid, Name, Version)]
+    // Load after the pack's content loaders so their moons and weathers are registered when we look for them.
+    [BepInDependency(Compat.LethalLevelLoader, BepInDependency.DependencyFlags.SoftDependency)]
+    [BepInDependency(Compat.WeatherRegistry, BepInDependency.DependencyFlags.SoftDependency)]
     public class Plugin : BaseUnityPlugin
     {
         public const string Guid = "psychy.overstretched";
         public const string Name = "Overstretched";
-        public const string Version = "1.1.0";
+        public const string Version = "2.0.0";
 
         internal static ManualLogSource Log;
 
@@ -18,6 +21,7 @@ namespace Overstretched
         {
             Log = Logger;
             Settings.Load();
+            ModPack.Load();
             var harmony = new Harmony(Guid);
             harmony.PatchAll();
             EnemyFreeze.Apply(harmony);
@@ -27,6 +31,7 @@ namespace Overstretched
             host.hideFlags = HideFlags.HideAndDontSave;
             host.AddComponent<Features>();
             host.AddComponent<ModMenu>();
+            host.AddComponent<PackUpgrade>();
             if (System.IO.File.Exists(AutoTest.FlagFile)) host.AddComponent<AutoTest>();
 
             try

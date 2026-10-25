@@ -31,6 +31,8 @@
     <Reference Include="$(Managed)\UnityEngine.ImageConversionModule.dll" Private="false" />
     <Reference Include="$(Managed)\UnityEngine.TextRenderingModule.dll" Private="false" />
     <Reference Include="$(Managed)\UnityEngine.ScreenCaptureModule.dll" Private="false" />
+    <Reference Include="$(Managed)\UnityEngine.JSONSerializeModule.dll" Private="false" />
+    <Reference Include="$(Managed)\UnityEngine.UnityWebRequestModule.dll" Private="false" />
   </ItemGroup>
 
   <ItemGroup>
@@ -39,6 +41,17 @@
     <EmbeddedResource Include="Assets\Stretched\*.lpa" />
     <EmbeddedResource Include="Assets\Stretched\*.png" />
   </ItemGroup>
+
+  <!-- The preloader patcher is built first and embedded; Plugin writes it to BepInEx/patchers on startup. -->
+  <ItemGroup>
+    <ProjectReference Include="..\Overstretched.Preloader\Overstretched.Preloader.csproj" ReferenceOutputAssembly="false" />
+  </ItemGroup>
+  <Target Name="EmbedPreloader" AfterTargets="ResolveProjectReferences">
+    <ItemGroup>
+      <EmbeddedResource Include="..\Overstretched.Preloader\bin\$(Configuration)\netstandard2.1\Overstretched.Preloader.dll"
+                        LogicalName="Overstretched.Preloader.dll" />
+    </ItemGroup>
+  </Target>
 
   <!-- Build with -p:SkipDeploy=true to leave the game folder alone (e.g. while someone is playing). -->
   <Target Name="DeployToGame" AfterTargets="Build" Condition="'$(SkipDeploy)' != 'true'">

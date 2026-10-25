@@ -1,0 +1,19 @@
+<Project Sdk="Microsoft.NET.Sdk">
+
+  <!-- BepInEx preloader patcher: runs before any plugin loads, so it can move a disabled mod's files
+       out of the plugins folder (a loaded DLL can't be moved). Embedded into Overstretched.dll, which
+       writes it to BepInEx/patchers/Overstretched on startup. -->
+  <PropertyGroup>
+    <TargetFramework>netstandard2.1</TargetFramework>
+    <AssemblyName>Overstretched.Preloader</AssemblyName>
+    <RootNamespace>Overstretched.Preloader</RootNamespace>
+    <LangVersion>latest</LangVersion>
+    <GameDir>C:\Program Files (x86)\Steam\steamapps\common\Lethal Company</GameDir>
+  </PropertyGroup>
+
+  <ItemGroup>
+    <Reference Include="$(GameDir)\BepInEx\core\BepInEx.dll" Private="false" />
+    <Reference Include="$(GameDir)\BepInEx\core\Mono.Cecil.dll" Private="false" />
+  </ItemGroup>
+
+</Project>

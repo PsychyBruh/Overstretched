@@ -23,6 +23,8 @@ namespace Overstretched
             Scatter,         // host -> all
             LowGravity,      // host -> all: float seconds
             Invisible,       // client -> host and host -> all: int player index, bool on
+            PackList,        // client -> host: int player index, string "guid@version;..." of shared mods
+            PackMismatch,    // host -> all: int player index, string what differs
         }
 
         public enum DoorAction : byte { Open, Close, Unlock, Lock }

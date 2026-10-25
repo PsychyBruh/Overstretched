@@ -1,5 +1,25 @@
 # Changelog
 
+## 2.0.0
+
+- **Overstretched is now a mod pack.** The installer adds 53 mods by other creators (plus 29 libraries)
+  in groups you tick: Tolian's moons, Mirage voice mimicking, bigger lobbies, new monsters, items, an
+  interior, emotes and suits, quality of life, and bug and lag fixes. Each mod is downloaded from its
+  official Thunderstore page at a pinned, checksum-verified version. Credits in THIRD_PARTY_NOTICES.md.
+- **Installer**: group checklist with sizes, credits button, updates only download what changed and never
+  overwrite settings, uninstall removes exactly what it installed. Same file layout as r2modman.
+  It now updates itself when a newer installer is released.
+- **Upgrading from 1.x**: click UPDATE in your old installer as usual. Next time you start the game,
+  Overstretched offers the mod pack; it opens the new installer, which installs the pack as soon as you
+  close the game.
+- **Mods tab** in the F8 menu: every mod with author, license and links, an on/off switch (applies next
+  launch) that won't turn off a library something still needs, and a settings editor for every mod.
+- Moons from the pack get their own section in Ship; the weather picker includes custom weathers.
+- Spawn ALL can include modded monsters (Settings); monsters that can't spawn are skipped, not crashed on.
+- The menu key can be changed (Settings).
+- The Stretched's voice stealing can be switched off (useful with Mirage).
+- Joining players' mods are compared with the host's; mismatches get a warning.
+
 ## 1.1.0
 
 - **Brand new menu**: sidebar tabs, cards, animated switches and sliders, toasts, fade-in, drag to move,

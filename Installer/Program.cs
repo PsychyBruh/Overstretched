@@ -20,15 +20,21 @@ namespace OverstretchedInstaller
         private static int Main(string[] args)
         {
             ServicePointManager.SecurityProtocol = SecurityProtocolType.Tls12; // GitHub requires TLS 1.2
-            if (args.Length > 0) return RunCommandLine(args);
+            string Arg(string name) { int i = Array.IndexOf(args, name); return i >= 0 && i + 1 < args.Length ? args[i + 1] : null; }
+            // Self-update, second half: this is the new installer, copy it over the old one.
+            var replace = Arg("--replace");
+            if (replace != null) Installer.ReplaceOldInstaller(replace);
+            bool upgrade = args.Contains("--upgrade");
+            if (args.Any(a => a == "--status" || a == "--install" || a == "--update" || a == "--uninstall")) return RunCommandLine(args);
             Application.EnableVisualStyles();
             Application.SetCompatibleTextRenderingDefault(false);
-            Application.Run(new MainForm());
+            Application.Run(new MainForm(upgrade, Arg("--game")));
             return 0;
         }
 
         /// <summary>
-        /// Headless mode: OverstretchedInstaller.exe --status|--install|--update|--uninstall [--game "path"] [--remove-bepinex]
+        /// Headless mode: OverstretchedInstaller.exe --status|--install|--update|--uninstall [--game "path"]
+        /// [--groups core,monsters,...] [--remove-bepinex]
         /// </summary>
         private static int RunCommandLine(string[] args)
         {
@@ -45,12 +51,22 @@ namespace OverstretchedInstaller
                     var installed = Installer.InstalledVersion(game);
                     Out($"BepInEx: {(Installer.BepInExInstalled(game) ? "yes" : "no")}  Installed: {installed ?? "none"}  Latest: {latest.Version}  " +
                         $"Update available: {(installed != null && Installer.IsNewer(latest.Version, installed) ? "yes" : "no")}");
+                    var pack = Installer.LoadLock(latest).GetAwaiter().GetResult();
+                    if (pack != null)
+                    {
+                        var groups = Installer.ChosenGroups(game, pack, Arg("--groups"));
+                        var state = PackInstaller.LoadState(game);
+                        Out($"Pack: {pack.Resolve(groups).Count} mods for groups [{string.Join(",", groups)}], " +
+                            $"{state?.Packages.Count ?? 0} installed, {PackInstaller.PendingChanges(game, pack, groups).Count} to install or update");
+                    }
                 }
                 if (args.Contains("--install") || args.Contains("--update"))
                 {
                     if (Installer.GameRunning()) { Out("Close Lethal Company first."); return 3; }
                     var latest = Installer.LatestRelease().GetAwaiter().GetResult();
-                    Installer.Install(game, latest, Out, new Progress<int>()).GetAwaiter().GetResult();
+                    var pack = Installer.LoadLock(latest).GetAwaiter().GetResult();
+                    var groups = pack != null ? Installer.ChosenGroups(game, pack, Arg("--groups")) : new List<string>();
+                    Installer.Install(game, latest, pack, groups, Out, new Progress<int>()).GetAwaiter().GetResult();
                 }
                 if (args.Contains("--uninstall"))
                 {
@@ -137,6 +153,8 @@ namespace OverstretchedInstaller
         {
             public string Version;
             public string DllUrl;
+            public string LockUrl; // pack.lock.json; missing on releases before 2.0
+            public string InstallerUrl;
             public string Notes;
         }
 
@@ -144,16 +162,61 @@ namespace OverstretchedInstaller
         {
             var json = await http.GetStringAsync($"https://api.github.com/repos/{Repo}/releases/latest");
             string Field(string name) => Regex.Match(json, "\"" + name + "\"\\s*:\\s*\"((?:[^\"\\\\]|\\\\.)*)\"").Groups[1].Value;
-            var dll = Regex.Matches(json, "\"browser_download_url\"\\s*:\\s*\"([^\"]+)\"")
-                .Cast<Match>().Select(m => m.Groups[1].Value)
-                .FirstOrDefault(u => u.EndsWith("/" + ModDll, StringComparison.OrdinalIgnoreCase));
+            var assets = Regex.Matches(json, "\"browser_download_url\"\\s*:\\s*\"([^\"]+)\"")
+                .Cast<Match>().Select(m => m.Groups[1].Value).ToList();
+            var dll = assets.FirstOrDefault(u => u.EndsWith("/" + ModDll, StringComparison.OrdinalIgnoreCase));
             if (dll == null) throw new Exception("The latest release has no " + ModDll + " attached.");
             return new Release
             {
                 Version = Field("tag_name").TrimStart('v', 'V'),
                 DllUrl = dll,
+                LockUrl = assets.FirstOrDefault(u => u.EndsWith("/pack.lock.json", StringComparison.OrdinalIgnoreCase)),
+                InstallerUrl = assets.FirstOrDefault(u => u.EndsWith("/OverstretchedInstaller.exe", StringComparison.OrdinalIgnoreCase)),
                 Notes = Regex.Unescape(Field("body")),
             };
+        }
+
+        /// <summary>The release's pack list, or null for releases without one. OVERSTRETCHED_LOCK=path overrides it (testing).</summary>
+        public static async Task<PackLock> LoadLock(Release release)
+        {
+            var local = Environment.GetEnvironmentVariable("OVERSTRETCHED_LOCK");
+            if (!string.IsNullOrEmpty(local) && File.Exists(local)) return Json.Parse<PackLock>(File.ReadAllText(local));
+            if (release?.LockUrl == null) return null;
+            return Json.Parse<PackLock>(await http.GetStringAsync(release.LockUrl));
+        }
+
+        /// <summary>Groups to install: given on the command line, else what was installed last time, else the pack's defaults.</summary>
+        public static List<string> ChosenGroups(string game, PackLock pack, string fromArgs = null)
+        {
+            var known = new HashSet<string>(pack.Groups.Select(g => g.Id));
+            IEnumerable<string> chosen = fromArgs != null ? fromArgs.Split(new[] { ',' }, StringSplitOptions.RemoveEmptyEntries).Select(s => s.Trim())
+                : PackInstaller.LoadState(game)?.Groups is List<string> last && last.Count > 0 ? last
+                : pack.Groups.Where(g => g.Default).Select(g => g.Id);
+            return chosen.Concat(pack.Groups.Where(g => g.Required).Select(g => g.Id)).Where(known.Contains).Distinct().ToList();
+        }
+
+        public static string OwnVersion => typeof(Installer).Assembly.GetName().Version.ToString(3);
+
+        /// <summary>
+        /// Self-update, first half: download the release's installer and start it (it replaces this exe, then carries
+        /// on with the same job). Returns false when this installer is already the latest.
+        /// </summary>
+        public static async Task<bool> StartNewerInstaller(Release release, string extraArgs)
+        {
+            if (release?.InstallerUrl == null || !IsNewer(release.Version, OwnVersion)) return false;
+            var tmp = Path.Combine(Path.GetTempPath(), $"OverstretchedInstaller-{release.Version}.exe");
+            await Download(release.InstallerUrl, tmp, new Progress<int>(), 0, 100);
+            Process.Start(tmp, $"--replace \"{Application.ExecutablePath}\" {extraArgs}".Trim());
+            return true;
+        }
+
+        public static void ReplaceOldInstaller(string oldPath)
+        {
+            for (int i = 0; i < 20; i++) // the old one may still be closing
+            {
+                try { File.Copy(Application.ExecutablePath, oldPath, true); return; }
+                catch { System.Threading.Thread.Sleep(500); }
+            }
         }
 
         public static bool IsNewer(string latest, string installed) =>
@@ -162,13 +225,13 @@ namespace OverstretchedInstaller
 
         // ------------------------------------------------------------------ actions
 
-        public static async Task Install(string game, Release release, Action<string> log, IProgress<int> progress)
+        public static async Task Install(string game, Release release, PackLock pack, List<string> groups, Action<string> log, IProgress<int> progress)
         {
             if (!BepInExInstalled(game))
             {
                 log("BepInEx (the mod loader) isn't installed yet. Downloading it...");
                 var zipPath = Path.Combine(Path.GetTempPath(), "BepInEx_Overstretched.zip");
-                await Download(BepInExUrl, zipPath, progress, 0, 45);
+                await Download(BepInExUrl, zipPath, progress, 0, 10);
                 log("Installing BepInEx...");
                 using (var zip = ZipFile.OpenRead(zipPath))
                     foreach (var entry in zip.Entries)
@@ -187,16 +250,24 @@ namespace OverstretchedInstaller
             log($"Downloading Overstretched v{release.Version}...");
             Directory.CreateDirectory(PluginDir(game));
             var tmp = Path.Combine(PluginDir(game), ModDll + ".download");
-            await Download(release.DllUrl, tmp, progress, 50, 100);
+            await Download(release.DllUrl, tmp, progress, 10, 15);
             var final = Path.Combine(PluginDir(game), ModDll);
             if (File.Exists(final)) File.Delete(final);
             File.Move(tmp, final);
             File.WriteAllText(VersionFile(game), release.Version);
             log($"Overstretched v{release.Version} installed.");
+
+            if (pack == null) { progress.Report(100); return; }
+            log($"Mod pack: {pack.Resolve(groups).Count} mods for Lethal Company {pack.Game} (groups: {string.Join(", ", groups)}).");
+            await PackInstaller.Sync(game, pack, groups, http, log, progress, 15, 100);
+            log("Mod pack installed. Credits for every mod are in the F8 menu > Mods.");
         }
 
         public static void Uninstall(string game, bool removeBepInEx, Action<string> log)
         {
+            PackInstaller.UninstallAll(game, log); // needs installed.json, which lives in the plugin folder
+            var preloader = Path.Combine(game, "BepInEx", "patchers", "Overstretched");
+            if (Directory.Exists(preloader)) Directory.Delete(preloader, true);
             if (Directory.Exists(PluginDir(game)))
             {
                 Directory.Delete(PluginDir(game), true);
@@ -258,13 +329,22 @@ namespace OverstretchedInstaller
         private readonly CheckBox removeLoader = new CheckBox();
         private readonly ProgressBar bar = new ProgressBar();
         private readonly TextBox log = new TextBox();
+        private readonly CheckedListBox groupList = new CheckedListBox();
+        private readonly Label packSummary = new Label();
         private Installer.Release latest;
-        private bool busy;
+        private PackLock pack;
+        private bool busy, loadingGroups;
+        private readonly bool upgrade;
+        private readonly string gameArg;
 
-        public MainForm()
+        /// <param name="upgrade">Started by the game (Overstretched 2.0 offering the mod pack): wait for the game to
+        /// close, then install by itself.</param>
+        public MainForm(bool upgrade = false, string gameArg = null)
         {
+            this.upgrade = upgrade;
+            this.gameArg = gameArg;
             Text = "Overstretched Installer";
-            ClientSize = new Size(620, 640);
+            ClientSize = new Size(980, 640);
             FormBorderStyle = FormBorderStyle.FixedSingle;
             MaximizeBox = false;
             StartPosition = FormStartPosition.CenterScreen;
@@ -341,9 +421,39 @@ namespace OverstretchedInstaller
             Controls.Add(link);
             Controls.Add(new Label
             {
-                Text = "Everyone in the lobby needs the mod.", Location = new Point(352, 604),
+                Text = "Everyone in the lobby needs the same mods.", Location = new Point(320, 604),
                 AutoSize = true, ForeColor = Dim,
             });
+
+            // Right column: which parts of the mod pack to install.
+            Controls.Add(new Label
+            {
+                Text = "MOD PACK", Location = new Point(620, 24), AutoSize = true,
+                Font = new Font("Segoe UI Black", 14f, FontStyle.Bold), ForeColor = Accent,
+            });
+            Controls.Add(new Label
+            {
+                Text = "Other creators' mods, downloaded from their official\nThunderstore pages. Tick what you want.",
+                Location = new Point(622, 56), AutoSize = true, ForeColor = Dim,
+            });
+            groupList.SetBounds(622, 104, 334, 370);
+            groupList.BackColor = Panel;
+            groupList.ForeColor = Fg;
+            groupList.BorderStyle = BorderStyle.None;
+            groupList.CheckOnClick = true;
+            groupList.Font = new Font("Segoe UI", 10.5f);
+            groupList.ItemCheck += (s, e) =>
+            {
+                if (loadingGroups || pack == null) return;
+                if (pack.Groups[e.Index].Required) { e.NewValue = CheckState.Checked; return; } // core can't be unticked
+                BeginInvoke(new Action(RefreshStatus));
+            };
+            Controls.Add(groupList);
+            packSummary.SetBounds(622, 482, 334, 66);
+            packSummary.ForeColor = Dim;
+            Controls.Add(packSummary);
+            var credits = MakeButton("CREDITS", new Rectangle(622, 552, 334, 40), Panel);
+            credits.Click += (s, e) => Process.Start($"https://github.com/{Installer.Repo}/blob/main/THIRD_PARTY_NOTICES.md");
 
             Shown += async (s, e) => await Startup();
         }
@@ -369,7 +479,7 @@ namespace OverstretchedInstaller
 
         private async Task Startup()
         {
-            var found = Installer.FindGame();
+            var found = Installer.IsGameFolder(gameArg) ? gameArg : Installer.FindGame();
             if (found != null) { pathBox.Text = found; Log("Found Lethal Company: " + found); }
             else Log("Couldn't find Lethal Company automatically. Click Browse and pick the folder with \"Lethal Company.exe\".");
             Log("Checking GitHub for the latest version...");
@@ -377,12 +487,39 @@ namespace OverstretchedInstaller
             {
                 latest = await Installer.LatestRelease();
                 Log($"Latest version: v{latest.Version}");
+                var extra = (upgrade ? "--upgrade " : "") + (Installer.IsGameFolder(pathBox.Text.Trim()) ? $"--game \"{pathBox.Text.Trim()}\"" : "");
+                if (await Installer.StartNewerInstaller(latest, extra))
+                {
+                    Log("A newer installer is out; switching to it...");
+                    Close();
+                    return;
+                }
+                pack = await Installer.LoadLock(latest);
+                if (pack != null) Log($"Mod pack: {pack.Packages.Count(p => p.Top)} mods (+{pack.Packages.Count(p => !p.Top)} libraries) for Lethal Company {pack.Game}.");
+                FillGroups();
             }
             catch (Exception ex)
             {
                 Log("Couldn't reach GitHub: " + ex.Message);
             }
             RefreshStatus();
+            if (upgrade) await WaitForGameThenInstall();
+        }
+
+        private async Task WaitForGameThenInstall()
+        {
+            var game = pathBox.Text.Trim();
+            if (!Installer.IsGameFolder(game) || latest == null) return;
+            if (Installer.GameRunning())
+            {
+                SetStatus("Close Lethal Company: the mod pack installs as soon as it's closed.", Color.FromArgb(230, 190, 90));
+                Log("Waiting for Lethal Company to close...");
+                while (Installer.GameRunning()) await Task.Delay(1000);
+                await Task.Delay(1500); // let it release its files
+            }
+            TopMost = true; Activate(); TopMost = false;
+            Log("Installing the mod pack...");
+            await Run(InstallOrUpdate);
         }
 
         private void Browse()
@@ -391,6 +528,25 @@ namespace OverstretchedInstaller
                 if (dialog.ShowDialog(this) == DialogResult.OK) pathBox.Text = dialog.SelectedPath;
         }
 
+        private void FillGroups()
+        {
+            if (pack == null) { packSummary.Text = "This release has no mod pack."; return; }
+            loadingGroups = true;
+            groupList.Items.Clear();
+            var game = pathBox.Text.Trim();
+            var chosen = Installer.IsGameFolder(game) ? Installer.ChosenGroups(game, pack) : pack.Groups.Where(g => g.Default).Select(g => g.Id).ToList();
+            foreach (var g in pack.Groups)
+            {
+                var mods = pack.Resolve(new[] { g.Id }).Where(p => p.Group == g.Id).ToList();
+                groupList.Items.Add($"{g.Name}  ({mods.Count} mods, {mods.Sum(p => p.Size) / 1048576} MB){(g.Required ? "  required" : "")}",
+                                    chosen.Contains(g.Id));
+            }
+            loadingGroups = false;
+        }
+
+        private List<string> SelectedGroups() =>
+            pack == null ? new List<string>() : groupList.CheckedIndices.Cast<int>().Select(i => pack.Groups[i].Id).ToList();
+
         private void RefreshStatus()
         {
             var game = pathBox.Text.Trim();
@@ -398,14 +554,30 @@ namespace OverstretchedInstaller
             string installed = valid ? Installer.InstalledVersion(game) : null;
             versions.Text = $"Installed: {Show(installed) ?? "none"}    Latest: {(latest != null ? Show(latest.Version) : "?")}";
 
+            int pending = 0, removals = 0;
+            if (pack != null)
+            {
+                var groups = SelectedGroups();
+                var wanted = pack.Resolve(groups);
+                pending = valid ? PackInstaller.PendingChanges(game, pack, groups).Count : wanted.Count;
+                var state = valid ? PackInstaller.LoadState(game) : null;
+                removals = state?.Packages.Count(p => wanted.All(w => w.Id != p.Id)) ?? 0;
+                packSummary.Text = $"{wanted.Count} mods selected (with libraries), {wanted.Sum(p => p.Size) / 1048576} MB.\n" +
+                                   (installed == null ? "" : pending + removals == 0 ? "Pack is up to date." :
+                                       $"{pending} to install or update{(removals > 0 ? $", {removals} to remove" : "")}.");
+            }
+            bool packChanges = installed != null && pending + removals > 0;
+
             if (!valid) { SetStatus("Pick your Lethal Company folder.", Dim); }
             else if (installed == null) SetStatus("Not installed.", Fg);
             else if (latest != null && Installer.IsNewer(latest.Version, installed))
                 SetStatus($"Update available: {Show(installed)} -> {Show(latest.Version)}", Color.FromArgb(120, 170, 230));
+            else if (packChanges) SetStatus("Mod pack changes ready: click UPDATE.", Color.FromArgb(120, 170, 230));
             else SetStatus($"Installed and up to date ({Show(installed)}).", Color.FromArgb(120, 200, 120));
 
             installButton.Enabled = !busy && valid && latest != null && installed == null;
-            updateButton.Enabled = !busy && valid && latest != null && installed != null && Installer.IsNewer(latest.Version, installed);
+            updateButton.Enabled = !busy && valid && latest != null && installed != null && (Installer.IsNewer(latest.Version, installed) || packChanges);
+            groupList.Enabled = !busy;
             uninstallButton.Enabled = !busy && valid && (installed != null || removeLoader.Checked);
             browseButton.Enabled = !busy;
             foreach (var b in new[] { installButton, updateButton, uninstallButton })
@@ -453,8 +625,9 @@ namespace OverstretchedInstaller
         private async Task InstallOrUpdate(string game)
         {
             if (latest == null) latest = await Installer.LatestRelease();
+            if (pack == null) pack = await Installer.LoadLock(latest);
             var progress = new Progress<int>(v => bar.Value = Math.Max(0, Math.Min(100, v)));
-            await Installer.Install(game, latest, Log, progress);
+            await Installer.Install(game, latest, pack, SelectedGroups(), Log, progress);
             if (!string.IsNullOrWhiteSpace(latest.Notes)) Log("What's new:" + Environment.NewLine + latest.Notes.Trim());
             Log("Done! Start Lethal Company and press F8 in game for the menu.");
         }

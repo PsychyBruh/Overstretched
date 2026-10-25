@@ -8,7 +8,7 @@ using static Overstretched.UiKit;
 
 namespace Overstretched
 {
-    public class ModMenu : MonoBehaviour
+    public partial class ModMenu : MonoBehaviour
     {
         private static readonly (string icon, string name, string blurb)[] Tabs =
         {
@@ -23,10 +23,12 @@ namespace Overstretched
             ("$", "Economy", "Credits, quota and scrap value"),
             ("⚡", "Chaos", "Hordes, blackouts, earthquakes and more"),
             ("⚠", "The Stretched", "The new monster: live status, preview, tuning"),
+            ("▤", "Mods", "Every mod in the pack: credits, on/off and settings"),
             ("⚙", "Settings", "Menu size, look and saved settings"),
         };
 
         internal const int MonstersTab = 5;
+        internal static int TabCount => Tabs.Length;
         internal const int ViewLive = 0, ViewSpawn = 1, ViewTable = 2;
 
         private const float SidebarWidth = 196f, HeaderHeight = 66f;
@@ -61,10 +63,28 @@ namespace Overstretched
             toastTime = Time.unscaledTime;
         }
 
+        private bool waitingForKey;
+
+        private static string KeyName => System.Enum.IsDefined(typeof(Key), Settings.MenuKey) ? ((Key)Settings.MenuKey).ToString() : "F8";
+
         private void Update()
         {
-            if (Keyboard.current != null && Keyboard.current.f8Key.wasPressedThisFrame)
-                SetOpen(!open);
+            var kb = Keyboard.current;
+            if (kb == null) return;
+            if (waitingForKey)
+            {
+                // Rebinding the menu key: take the next key pressed (Escape cancels).
+                foreach (var k in kb.allKeys)
+                    if (k.wasPressedThisFrame)
+                    {
+                        if (k.keyCode != Key.Escape) { Settings.MenuKey = (int)k.keyCode; Toast($"Menu key is now {k.keyCode}"); }
+                        waitingForKey = false;
+                        return;
+                    }
+                return;
+            }
+            var key = System.Enum.IsDefined(typeof(Key), Settings.MenuKey) && Settings.MenuKey != (int)Key.None ? (Key)Settings.MenuKey : Key.F8;
+            if (kb[key].wasPressedThisFrame) SetOpen(!open);
         }
 
         private void SetOpen(bool value)
@@ -225,7 +245,7 @@ namespace Overstretched
         {
             // Logo.
             GUI.Label(new Rect(20f, 16f, 170f, 26f), $"<color={Rich(Accent)}>OVER</color>STRETCHED", Title);
-            GUI.Label(new Rect(21f, 41f, 170f, 16f), $"v{Plugin.Version}  ·  F8 to toggle", LabelSmall);
+            GUI.Label(new Rect(21f, 41f, 170f, 16f), $"v{Plugin.Version}  ·  {KeyName} to toggle", LabelSmall);
 
             float y = 78f;
             float rowH = Mathf.Clamp((h - 78f - 56f) / Tabs.Length, 30f, 38f);
@@ -304,7 +324,8 @@ namespace Overstretched
                 case 8: Scroll(DrawEconomy); break;
                 case 9: Scroll(DrawChaos); break;
                 case 10: Scroll(DrawStretched); break;
-                case 11: Scroll(DrawSettings); break;
+                case 11: DrawMods(); break;
+                case 12: Scroll(DrawSettings); break;
             }
         }
 
@@ -725,8 +746,9 @@ namespace Overstretched
             GUILayout.Space(4);
             var shown = enemyTypes.Where(t => string.IsNullOrEmpty(monsterSearch) ||
                                               DisplayName(t).IndexOf(monsterSearch, System.StringComparison.OrdinalIgnoreCase) >= 0).ToList();
-            int pick = ButtonGrid(shown.Select(DisplayName).ToList(), 3);
+            int pick = ButtonGrid(shown.Select(t => DisplayName(t) + (Features.IsModded(t) ? " ★" : "")).ToList(), 3);
             if (pick >= 0) for (int i = 0; i < spawnCount; i++) SpawnEnemy(shown[pick], i);
+            if (shown.Any(Features.IsModded)) Note("★ added by another mod in the pack.");
             EndCard();
         }
 
@@ -742,6 +764,7 @@ namespace Overstretched
             if (e == null) return;
             Settings.FrozenEnemies.Remove(e);
             Features.SetPet(e, false);
+            Compat.BeforeDespawn(e);
             if (e.thisNetworkObject != null && e.thisNetworkObject.IsSpawned) e.thisNetworkObject.Despawn();
         }
 
@@ -861,8 +884,16 @@ namespace Overstretched
                 : cam.position + cam.forward * 6f;
             if (index > 0) { var o = Random.insideUnitCircle * 3f; pos += new Vector3(o.x, 0f, o.y); }
             pos = rm.GetNavMeshPosition(pos, default, 10f);
-            SpawnNestFor(type, pos);
-            rm.SpawnEnemyGameObject(pos, p.transform.eulerAngles.y + 180f, -1, type);
+            try
+            {
+                SpawnNestFor(type, pos);
+                rm.SpawnEnemyGameObject(pos, p.transform.eulerAngles.y + 180f, -1, type);
+            }
+            catch (System.Exception e)
+            {
+                Toast($"{DisplayName(type)} couldn't spawn here: {e.Message}");
+                return;
+            }
             Toast(index > 0 ? $"Spawned {index + 1}x {DisplayName(type)}" : $"Spawned {DisplayName(type)}");
         }
 
@@ -887,9 +918,13 @@ namespace Overstretched
                 {
                     var offset = Random.insideUnitCircle * 5f;
                     var spot = rm.GetNavMeshPosition(centre + new Vector3(offset.x, 0f, offset.y), default, 10f);
-                    SpawnNestFor(type, spot);
-                    rm.SpawnEnemyGameObject(spot, Random.Range(0f, 360f), -1, type);
-                    count++;
+                    try
+                    {
+                        SpawnNestFor(type, spot);
+                        rm.SpawnEnemyGameObject(spot, Random.Range(0f, 360f), -1, type);
+                        count++;
+                    }
+                    catch (System.Exception e) { Plugin.Log.LogWarning($"Spawn ALL skipped {DisplayName(type)}: {e.Message}"); }
                 }
             spawnedByAll += count;
             Toast($"Spawned {count} monsters ({spawnedByAll} from Spawn ALL so far)");
@@ -940,16 +975,21 @@ namespace Overstretched
 
             var level = StartOfRound.Instance != null ? StartOfRound.Instance.currentLevel : null;
             if (level == null) return;
-            BeginCard("Weather", $"{level.PlanetName}: {level.currentWeather} (applies when you land)", Cyan);
-            var weathers = System.Enum.GetValues(typeof(LevelWeatherType)).Cast<LevelWeatherType>().ToList();
+            string current = Compat.CurrentWeather(level);
+            BeginCard("Weather", $"{level.PlanetName}: {current} (applies when you land)", Cyan);
+            var weathers = Compat.Weathers();
             for (int i = 0; i < weathers.Count; i += 4)
                 Row(() =>
                 {
                     for (int j = i; j < Mathf.Min(i + 4, weathers.Count); j++)
-                        if (Button(weathers[j].ToString(), weathers[j] == level.currentWeather ? Kind.Accent : Kind.Normal,
+                        if (Button(weathers[j].Name, weathers[j].Name == current ? Kind.Accent : Kind.Normal,
                                    GUILayout.Height(30), GUILayout.Width(UiKit.ContentWidth / 4f - 6f)))
-                            level.currentWeather = weathers[j];
+                        {
+                            try { Compat.SetWeather(level, weathers[j]); Toast($"{level.PlanetName}: {weathers[j].Name}"); }
+                            catch (System.Exception e) { Toast("Couldn't change the weather: " + e.Message); }
+                        }
                 });
+            if (Compat.Has(Compat.WeatherRegistry)) Note("Includes custom weathers from WeatherRegistry.");
             EndCard();
         }
 
@@ -975,20 +1015,11 @@ namespace Overstretched
 
             if (!HostGate("Moons, upgrades and store items are host only.")) return;
 
-            BeginCard("Moons", "free routing, in orbit only", Blue);
-            var levels = sor.levels.Where(l => l != null).ToList();
-            for (int i = 0; i < levels.Count; i += 3)
-                Row(() =>
-                {
-                    for (int j = i; j < Mathf.Min(i + 3, levels.Count); j++)
-                    {
-                        var l = levels[j];
-                        bool here = l == sor.currentLevel;
-                        if (Button(l.PlanetName, here ? Kind.Accent : Kind.Normal, GUILayout.Height(30), GUILayout.Width(UiKit.ContentWidth / 3f - 6f)) && !here)
-                            Features.RouteTo(l);
-                    }
-                });
-            EndCard();
+            var custom = Compat.CustomLevels();
+            var allLevels = sor.levels.Where(l => l != null).ToList();
+            DrawMoonGrid("Moons", "free routing, in orbit only", allLevels.Where(l => !custom.ContainsKey(l)).ToList(), null);
+            var modded = allLevels.Where(custom.ContainsKey).OrderBy(l => l.PlanetName).ToList();
+            if (modded.Count > 0) DrawMoonGrid("Modded moons", $"{modded.Count} from the mod pack", modded, custom);
 
             var terminal = FindObjectOfType<Terminal>();
             if (terminal != null && terminal.buyableItemsList != null)
@@ -1010,6 +1041,24 @@ namespace Overstretched
             if (missing.Count == 0) Note("Everything matching is already unlocked.");
             int unlock = ButtonGrid(missing.Select(i => unlockables[i].unlockableName).ToList(), 3);
             if (unlock >= 0) Features.UnlockForFree(missing[unlock]);
+            EndCard();
+        }
+
+        private static void DrawMoonGrid(string title, string subtitle, List<SelectableLevel> levels, Dictionary<SelectableLevel, string> sources)
+        {
+            var sor = StartOfRound.Instance;
+            BeginCard(title, subtitle, sources == null ? Blue : Purple);
+            for (int i = 0; i < levels.Count; i += 3)
+                Row(() =>
+                {
+                    for (int j = i; j < Mathf.Min(i + 3, levels.Count); j++)
+                    {
+                        var l = levels[j];
+                        bool here = l == sor.currentLevel;
+                        if (Button(l.PlanetName, here ? Kind.Accent : Kind.Normal, GUILayout.Height(30), GUILayout.Width(UiKit.ContentWidth / 3f - 6f)) && !here)
+                            Features.RouteTo(l);
+                    }
+                });
             EndCard();
         }
 
@@ -1169,6 +1218,8 @@ namespace Overstretched
                 Settings.StretchedSilenceRadius = Slider("Silence radius", Settings.StretchedSilenceRadius, 5f, 40f, "0", " m");
                 Settings.StretchedAggression = Slider("Aggression", Settings.StretchedAggression, 0.25f, 3f);
                 Settings.StretchedSpeed = Slider("Speed", Settings.StretchedSpeed, 0.25f, 3f);
+                Settings.StretchedVoiceTheft = Switch("Steals voices", Settings.StretchedVoiceTheft,
+                    Compat.Has(Compat.Mirage) ? "Mirage is installed too: turn this off to leave voices to Mirage" : "Replays what players said near it");
             }
             EndCard();
         }
@@ -1223,7 +1274,18 @@ namespace Overstretched
             Settings.UiOpacity = Slider("Background opacity", Settings.UiOpacity, 0.6f, 1f, "0%", "");
             EndCard();
 
+            BeginCard("Menu key", null, Blue);
+            GUILayout.BeginHorizontal();
+            GUILayout.Label(waitingForKey ? "Press any key (Esc to cancel)..." : $"Open / close the menu with <b>{KeyName}</b>", UiKit.Label);
+            GUILayout.FlexibleSpace();
+            if (Button(waitingForKey ? "Waiting..." : "Change", waitingForKey ? Kind.Accent : Kind.Normal, GUILayout.Width(110), GUILayout.Height(30)))
+                waitingForKey = !waitingForKey;
+            GUILayout.EndHorizontal();
+            EndCard();
+
             BeginCard("Spawn ALL", null, Red);
+            Settings.SpawnAllModded = Switch("Include modded monsters", Settings.SpawnAllModded,
+                "Monsters from other mods in the pack too (some may misbehave away from their own moons)");
             Settings.SpawnAllBatches = Mathf.RoundToInt(Slider("Copies of every monster per press", Settings.SpawnAllBatches, 1, 5, "0", "x"));
             Settings.SpamInterval = Slider("Hold-to-spam delay", Settings.SpamInterval, 0.05f, 1f, "0.00", " s");
             EndCard();
@@ -1241,7 +1303,7 @@ namespace Overstretched
             EndCard();
 
             BeginCard("Keys", null, Blue);
-            Note("F8  open / close this menu\nDrag the header to move it, the corner dots to resize it.");
+            Note($"{KeyName}  open / close this menu\nDrag the header to move it, the corner dots to resize it.");
             EndCard();
         }
 
@@ -1261,6 +1323,7 @@ namespace Overstretched
         internal void DebugRemove(EnemyAI e) => RemoveMonster(e);
         internal int DebugSpawnAll() => SpawnAll();
         internal void DebugExpandAll() { foreach (var t in enemyTypes) expanded.Add(DisplayName(t)); }
+        internal void DebugOpenMod(string id) => openMods.Add(id);
         internal string DebugStatus => toast;
     }
 }

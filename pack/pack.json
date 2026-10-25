@@ -1,0 +1,402 @@
+{
+  "comment": "What the Overstretched pack installs. Run tools/pack/update_lock.py after editing to pin versions and regenerate pack.lock.json and THIRD_PARTY_NOTICES.md. Every mod is downloaded by the installer from its official Thunderstore page; nothing third-party is re-hosted.",
+  "game": "v81",
+  "skip": [
+    "BepInEx-BepInExPack"
+  ],
+  "groups": [
+    {
+      "id": "core",
+      "name": "Core",
+      "description": "Custom moons, weather, terminal and AI fixes the rest of the pack builds on",
+      "default": true,
+      "required": true
+    },
+    {
+      "id": "moons",
+      "name": "Tolian Moons",
+      "description": "About 19 new moons by Tolian",
+      "default": true
+    },
+    {
+      "id": "mirage",
+      "name": "Mirage",
+      "description": "Monsters mimic your friends' voices",
+      "default": true
+    },
+    {
+      "id": "lobby",
+      "name": "Bigger lobbies",
+      "description": "MoreCompany and LobbyControl",
+      "default": true
+    },
+    {
+      "id": "monsters",
+      "name": "Monsters",
+      "description": "A dozen new monsters",
+      "default": true
+    },
+    {
+      "id": "items",
+      "name": "Items",
+      "description": "New scrap and store items",
+      "default": true
+    },
+    {
+      "id": "interiors",
+      "name": "Interiors",
+      "description": "Liminal pools interior",
+      "default": true
+    },
+    {
+      "id": "emotes",
+      "name": "Emotes & suits",
+      "description": "Emotes and more suits",
+      "default": true
+    },
+    {
+      "id": "qol",
+      "name": "Quality of life",
+      "description": "Hotbar, reserved slots, body cams, spectating and more",
+      "default": true
+    },
+    {
+      "id": "stability",
+      "name": "Fixes & performance",
+      "description": "Bug fixes and lag fixes",
+      "default": true
+    },
+    {
+      "id": "optional",
+      "name": "Extras",
+      "description": "Scarlet Devil Mansion interior and the Wither moon",
+      "default": false
+    }
+  ],
+  "mods": [
+    {
+      "id": "IAmBatby-LethalLevelLoader",
+      "group": "core",
+      "license": "MIT",
+      "everyone": true
+    },
+    {
+      "id": "mrov-WeatherRegistry",
+      "group": "core",
+      "license": "LGPL-3.0",
+      "everyone": true
+    },
+    {
+      "id": "Rune580-LethalCompany_InputUtils",
+      "group": "core",
+      "license": "LGPL-3.0",
+      "everyone": false
+    },
+    {
+      "id": "darmuh-darmuhsTerminalStuff",
+      "group": "core",
+      "license": "MIT",
+      "everyone": true
+    },
+    {
+      "id": "TheFluff-FairAI",
+      "group": "core",
+      "license": "MIT",
+      "everyone": false
+    },
+    {
+      "id": "PureFPSZac-NestFix",
+      "group": "core",
+      "license": "MIT",
+      "everyone": false
+    },
+    {
+      "id": "Tolian-Tolian_Moons",
+      "group": "moons",
+      "license": "No license on this build (downloaded from the author's page, not re-hosted)",
+      "everyone": true
+    },
+    {
+      "id": "qwbarch-Mirage",
+      "group": "mirage",
+      "license": "CC BY-NC-ND 4.0 (downloaded from the author's page, as the author asks)",
+      "everyone": true
+    },
+    {
+      "id": "notnotnotswipez-MoreCompany",
+      "group": "lobby",
+      "license": "MIT",
+      "everyone": true
+    },
+    {
+      "id": "mattymatty-LobbyControl",
+      "group": "lobby",
+      "license": "MIT",
+      "everyone": false
+    },
+    {
+      "id": "x753-Mimics",
+      "group": "monsters",
+      "license": "MIT",
+      "everyone": true
+    },
+    {
+      "id": "x753-Peepers",
+      "group": "monsters",
+      "license": "MIT",
+      "everyone": true
+    },
+    {
+      "id": "zealsprince-Locker",
+      "group": "monsters",
+      "license": "MIT",
+      "everyone": true
+    },
+    {
+      "id": "AmesBoys-ImmortalSnail",
+      "group": "monsters",
+      "license": "MIT",
+      "everyone": true
+    },
+    {
+      "id": "ProjectSCP-SCP966",
+      "group": "monsters",
+      "license": "MIT (SCP content CC BY-SA 3.0)",
+      "everyone": true
+    },
+    {
+      "id": "ProjectSCP-SCP1507",
+      "group": "monsters",
+      "license": "MIT (SCP content CC BY-SA 3.0)",
+      "everyone": true
+    },
+    {
+      "id": "MoonsweptTeam-Moonswept",
+      "group": "monsters",
+      "license": "MIT",
+      "everyone": true
+    },
+    {
+      "id": "Zehs-ToilHead",
+      "group": "monsters",
+      "license": "MIT",
+      "everyone": true
+    },
+    {
+      "id": "SoftDiamond-RollingGiant",
+      "group": "monsters",
+      "license": "MIT",
+      "everyone": true
+    },
+    {
+      "id": "super_fucking_cool_and_badass_team-Biodiversity",
+      "group": "monsters",
+      "license": "MIT",
+      "everyone": true
+    },
+    {
+      "id": "dopadream-ClaySurgeonOverhaul",
+      "group": "monsters",
+      "license": "MIT",
+      "everyone": true
+    },
+    {
+      "id": "Zehs-Whiteboard",
+      "group": "items",
+      "license": "MIT",
+      "everyone": true
+    },
+    {
+      "id": "Electric131-OuijaBoard",
+      "group": "items",
+      "license": "MIT",
+      "everyone": true
+    },
+    {
+      "id": "Scoops-LethalPhones",
+      "group": "items",
+      "license": "MIT",
+      "everyone": true
+    },
+    {
+      "id": "MissileMann-EliteFlashlight",
+      "group": "items",
+      "license": "MIT",
+      "everyone": true
+    },
+    {
+      "id": "SimonTendo-LCGoldScrapMod",
+      "group": "items",
+      "license": "MIT",
+      "everyone": true
+    },
+    {
+      "id": "Entity378-SellBodiesFixed",
+      "group": "items",
+      "license": "MIT",
+      "everyone": true
+    },
+    {
+      "id": "KawaiiBone-Remnants",
+      "group": "items",
+      "license": "MIT",
+      "everyone": true
+    },
+    {
+      "id": "theMenagerie-LiminalPools",
+      "group": "interiors",
+      "license": "MIT",
+      "everyone": true
+    },
+    {
+      "id": "FlipMods-TooManyEmotes",
+      "group": "emotes",
+      "license": "MIT",
+      "everyone": false
+    },
+    {
+      "id": "FlipMods-TooManyEmotesScrap",
+      "group": "emotes",
+      "license": "MIT",
+      "everyone": true
+    },
+    {
+      "id": "x753-More_Suits",
+      "group": "emotes",
+      "license": "MIT",
+      "everyone": true
+    },
+    {
+      "id": "Verity-TooManySuits",
+      "group": "emotes",
+      "license": "MIT",
+      "everyone": false
+    },
+    {
+      "id": "AinaVT-LethalConfig",
+      "group": "qol",
+      "license": "GPL-3.0",
+      "everyone": false
+    },
+    {
+      "id": "FlipMods-HotbarPlus",
+      "group": "qol",
+      "license": "MIT",
+      "everyone": true
+    },
+    {
+      "id": "FlipMods-ReservedItemSlotCore",
+      "group": "qol",
+      "license": "MIT",
+      "everyone": true
+    },
+    {
+      "id": "FlipMods-ReservedFlashlightSlot",
+      "group": "qol",
+      "license": "MIT",
+      "everyone": true
+    },
+    {
+      "id": "FlipMods-ReservedWalkieSlot",
+      "group": "qol",
+      "license": "MIT",
+      "everyone": true
+    },
+    {
+      "id": "Zaggy1024-OpenBodyCams",
+      "group": "qol",
+      "license": "MIT",
+      "everyone": false
+    },
+    {
+      "id": "AllToasters-SpectateEnemies",
+      "group": "qol",
+      "license": "MIT",
+      "everyone": false
+    },
+    {
+      "id": "darmuh-LethalConstellations",
+      "group": "qol",
+      "license": "MIT",
+      "everyone": true
+    },
+    {
+      "id": "ButteryStancakes-ButteryFixes",
+      "group": "stability",
+      "license": "GPL-3.0",
+      "everyone": false
+    },
+    {
+      "id": "Dev1A3-LethalFixes",
+      "group": "stability",
+      "license": "MIT",
+      "everyone": false
+    },
+    {
+      "id": "ButteryStancakes-JetpackFixes",
+      "group": "stability",
+      "license": "GPL-3.0",
+      "everyone": false
+    },
+    {
+      "id": "mattymatty-Matty_Fixes",
+      "group": "stability",
+      "license": "GPL-3.0",
+      "everyone": false
+    },
+    {
+      "id": "Zaggy1024-PathfindingLagFix",
+      "group": "stability",
+      "license": "MIT",
+      "everyone": false
+    },
+    {
+      "id": "Zaggy1024-SmartEnemyPathfinding",
+      "group": "stability",
+      "license": "MIT",
+      "everyone": false
+    },
+    {
+      "id": "fumiko-CullFactory",
+      "group": "stability",
+      "license": "MIT",
+      "everyone": false
+    },
+    {
+      "id": "Scoops-LethalSponge",
+      "group": "stability",
+      "license": "MIT",
+      "everyone": false
+    },
+    {
+      "id": "e3s1-BetterLadders",
+      "group": "stability",
+      "license": "MIT",
+      "everyone": false
+    },
+    {
+      "id": "DiggC-CruiserImproved",
+      "group": "stability",
+      "license": "MIT",
+      "everyone": true
+    },
+    {
+      "id": "Alice-ScarletDevilMansion",
+      "group": "optional",
+      "license": "CC BY (see README)",
+      "everyone": true
+    },
+    {
+      "id": "ScienceBird-Wither",
+      "group": "optional",
+      "license": "CC0",
+      "everyone": true
+    }
+  ],
+  "excluded": {
+    "Evaisa-LethalThings": "Calls game methods that changed in v81 (TargetClosestPlayer, EnableEnemyMesh, DropAllHeldItems)",
+    "Bob123-Haunted_Harpist": "Calls game methods that changed in v81 (ChooseFarthestNodeFromPosition, EnableEnemyMesh)",
+    "FluxTeam-EmployeeAssignmentsRevived": "Reads RoundManager.scrapCollectedThisRound, removed in v81",
+    "skidz-PoolRooms": "Built against DunGen types that moved in v81"
+  }
+}

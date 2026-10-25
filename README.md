@@ -15,6 +15,8 @@
 
 Later, open it again and click **UPDATE** when a new version is out, or **UNINSTALL** to remove it.
 
+<p align="center"><img src="renders/installer.png" width="420" alt="Overstretched installer"></p>
+
 > **Windows may say "Windows protected your PC".** The installer isn't code-signed (that costs money).
 > Click **More info → Run anyway**. The full source is in this repo if you want to check it.
 

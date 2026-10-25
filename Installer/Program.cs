@@ -17,12 +17,53 @@ namespace OverstretchedInstaller
     internal static class Program
     {
         [STAThread]
-        private static void Main()
+        private static int Main(string[] args)
         {
             ServicePointManager.SecurityProtocol = SecurityProtocolType.Tls12; // GitHub requires TLS 1.2
+            if (args.Length > 0) return RunCommandLine(args);
             Application.EnableVisualStyles();
             Application.SetCompatibleTextRenderingDefault(false);
             Application.Run(new MainForm());
+            return 0;
+        }
+
+        /// <summary>
+        /// Headless mode: OverstretchedInstaller.exe --status|--install|--update|--uninstall [--game "path"] [--remove-bepinex]
+        /// </summary>
+        private static int RunCommandLine(string[] args)
+        {
+            string Arg(string name) { int i = Array.IndexOf(args, name); return i >= 0 && i + 1 < args.Length ? args[i + 1] : null; }
+            var game = Arg("--game") ?? Installer.FindGame();
+            void Out(string s) => Console.WriteLine(s);
+            try
+            {
+                if (!Installer.IsGameFolder(game)) { Out("Lethal Company not found. Pass --game \"<folder>\"."); return 2; }
+                Out("Game: " + game);
+                if (args.Contains("--status"))
+                {
+                    var latest = Installer.LatestRelease().GetAwaiter().GetResult();
+                    var installed = Installer.InstalledVersion(game);
+                    Out($"BepInEx: {(Installer.BepInExInstalled(game) ? "yes" : "no")}  Installed: {installed ?? "none"}  Latest: {latest.Version}  " +
+                        $"Update available: {(installed != null && Installer.IsNewer(latest.Version, installed) ? "yes" : "no")}");
+                }
+                if (args.Contains("--install") || args.Contains("--update"))
+                {
+                    if (Installer.GameRunning()) { Out("Close Lethal Company first."); return 3; }
+                    var latest = Installer.LatestRelease().GetAwaiter().GetResult();
+                    Installer.Install(game, latest, Out, new Progress<int>()).GetAwaiter().GetResult();
+                }
+                if (args.Contains("--uninstall"))
+                {
+                    if (Installer.GameRunning()) { Out("Close Lethal Company first."); return 3; }
+                    Installer.Uninstall(game, args.Contains("--remove-bepinex"), Out);
+                }
+                return 0;
+            }
+            catch (Exception ex)
+            {
+                Out("Error: " + ex.Message);
+                return 1;
+            }
         }
     }
 
@@ -300,7 +341,7 @@ namespace OverstretchedInstaller
             Controls.Add(link);
             Controls.Add(new Label
             {
-                Text = "Everyone in your lobby needs Overstretched installed.", Location = new Point(300, 604),
+                Text = "Everyone in the lobby needs the mod.", Location = new Point(352, 604),
                 AutoSize = true, ForeColor = Dim,
             });
 
@@ -355,13 +396,13 @@ namespace OverstretchedInstaller
             var game = pathBox.Text.Trim();
             bool valid = Installer.IsGameFolder(game);
             string installed = valid ? Installer.InstalledVersion(game) : null;
-            versions.Text = $"Installed: {(installed != null ? "v" + installed : "none")}    Latest: {(latest != null ? "v" + latest.Version : "?")}";
+            versions.Text = $"Installed: {Show(installed) ?? "none"}    Latest: {(latest != null ? Show(latest.Version) : "?")}";
 
             if (!valid) { SetStatus("Pick your Lethal Company folder.", Dim); }
             else if (installed == null) SetStatus("Not installed.", Fg);
             else if (latest != null && Installer.IsNewer(latest.Version, installed))
-                SetStatus($"Update available: v{installed} -> v{latest.Version}", Color.FromArgb(120, 170, 230));
-            else SetStatus($"Installed and up to date (v{installed}).", Color.FromArgb(120, 200, 120));
+                SetStatus($"Update available: {Show(installed)} -> {Show(latest.Version)}", Color.FromArgb(120, 170, 230));
+            else SetStatus($"Installed and up to date ({Show(installed)}).", Color.FromArgb(120, 200, 120));
 
             installButton.Enabled = !busy && valid && latest != null && installed == null;
             updateButton.Enabled = !busy && valid && latest != null && installed != null && Installer.IsNewer(latest.Version, installed);
@@ -370,6 +411,8 @@ namespace OverstretchedInstaller
             foreach (var b in new[] { installButton, updateButton, uninstallButton })
                 b.BackColor = b.Enabled ? (b == installButton ? Accent : b == updateButton ? Color.FromArgb(52, 92, 140) : Danger) : Color.FromArgb(48, 48, 52);
         }
+
+        private static string Show(string version) => version == null ? null : version == "unknown" ? "unknown version" : "v" + version;
 
         private void SetStatus(string text, Color color)
         {

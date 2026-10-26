@@ -1,5 +1,9 @@
 # Changelog
 
+## 2.0.1
+
+- Installer: uninstalling no longer leaves a stray file behind in a pack mod's folder.
+
 ## 2.0.0
 
 - **Overstretched is now a mod pack.** The installer adds 53 mods by other creators (plus 29 libraries)

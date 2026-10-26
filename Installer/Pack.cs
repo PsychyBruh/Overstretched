@@ -230,6 +230,10 @@ namespace OverstretchedInstaller
             log($"Removed {state.Packages.Count} pack mods.");
             foreach (var backup in state.Backups.ToList())
             {
+                // Inside a pack mod's own folder: nobody else's file, and the folder is gone now. Don't recreate it.
+                if (state.Packages.Any(p => new[] { "plugins", "patchers", "core", "monomod" }
+                        .Any(r => backup.Key.StartsWith($"BepInEx/{r}/{p.Id}/", StringComparison.OrdinalIgnoreCase))))
+                    continue;
                 var original = Path.Combine(game, backup.Key);
                 var saved = Path.Combine(game, backup.Value);
                 if (!File.Exists(saved)) continue;

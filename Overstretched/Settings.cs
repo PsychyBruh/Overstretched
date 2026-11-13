@@ -43,6 +43,8 @@ namespace Overstretched
         [Transient] public static bool FreezeEnemies;
         public static readonly HashSet<EnemyAI> FrozenEnemies = new HashSet<EnemyAI>();
         public static float EnemyPowerMultiplier = 1f;
+        public static float ExtraSpawnsPerMinute;   // 0 = off; on top of the game's own spawns
+        public static int ExtraSpawnMaxAlive = 20;  // extra spawns stop while this many monsters are alive
 
         public static bool IsFrozen(EnemyAI enemy) => FreezeEnemies || FrozenEnemies.Contains(enemy);
 

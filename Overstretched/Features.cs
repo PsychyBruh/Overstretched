@@ -35,7 +35,7 @@ namespace Overstretched
             MenuNet.EnsureRegistered();
             ApplyPlayer();
             ApplyWorld();
-            if (IsHost) { UpdatePets(); Compat.UpdateCompanionPause(); }
+            if (IsHost) { UpdatePets(); Compat.UpdateCompanionPause(); if (InRound) SpawnDirector.Tick(); }
             if (InRound && Settings.StretchedVoiceTheft) VoiceThief.Tick();
             SendPackList();
         }

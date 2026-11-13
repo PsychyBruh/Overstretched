@@ -818,7 +818,15 @@ namespace Overstretched
             if (Button("▶", Kind.Normal, GUILayout.Width(40), GUILayout.Height(30))) tableLevel = (index + 1) % levels.Length;
             GUILayout.EndHorizontal();
             GUILayout.Space(6);
-            Settings.EnemyPowerMultiplier = Slider("Spawn cap, all moons (from the next landing)", Settings.EnemyPowerMultiplier, 0f, 5f);
+            Settings.EnemyPowerMultiplier = Slider("Spawn cap, all moons", Settings.EnemyPowerMultiplier, 0f, 5f);
+            Settings.ExtraSpawnsPerMinute = Slider("Extra spawns per minute (0 = off)", Settings.ExtraSpawnsPerMinute, 0f, 30f, "0.0", "");
+            if (Settings.ExtraSpawnsPerMinute > 0f)
+                Settings.ExtraSpawnMaxAlive = Mathf.RoundToInt(Slider("Stop extra spawns at this many alive", Settings.ExtraSpawnMaxAlive, 1, 60, "0", ""));
+            Note("Weights only choose WHICH monster spawns. The game decides how many from the time of day and the spawn cap, " +
+                 "so early in the day it's normal to see nothing. Extra spawns add monsters from the current moon's table " +
+                 "at a steady rate, at vents inside and AI nodes outside, picked by these weights.");
+            if (Features.InRound && Button("Spawn one from this table now", Kind.Normal, GUILayout.Height(28)))
+                Toast(SpawnDirector.SpawnOne(RoundManager.Instance) ? "Spawned one from the current moon's table" : "Nothing on the current moon's table can spawn");
             spawnList = Segmented(spawnList, SpawnLists, 28f);
             Note("Changes apply to every spawn from now on, including the rest of today.");
             GUILayout.Space(4);

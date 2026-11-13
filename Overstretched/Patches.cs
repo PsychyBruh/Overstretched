@@ -166,6 +166,7 @@ namespace Overstretched
         [HarmonyPostfix, HarmonyPatch("RefreshEnemiesList")]
         private static void RefreshEnemiesList(RoundManager __instance)
         {
+            SpawnDirector.OnNewDay(__instance);
             __instance.currentMaxInsidePower *= Settings.EnemyPowerMultiplier;
             __instance.currentMaxOutsidePower *= Settings.EnemyPowerMultiplier;
         }

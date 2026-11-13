@@ -1,5 +1,14 @@
 # Changelog
 
+## 2.1.0
+
+- **Extra spawns** (Monsters > Spawn table, host): a spawns-per-minute slider that adds monsters from the
+  current moon's spawn table on top of the game's own, picked by your weights, at vents inside and AI
+  nodes outside, with a max-alive limit. Before this, weights only chose *which* monster spawned, so
+  maxing them didn't make anything more show up.
+- **Spawn cap** now applies to the day in progress instead of only from the next landing.
+- "Spawn one from this table now" button and a note explaining how weights and spawn counts work.
+
 ## 2.0.1
 
 - Installer: uninstalling no longer leaves a stray file behind in a pack mod's folder.

@@ -13,7 +13,7 @@ namespace Overstretched
     {
         public const string Guid = "psychy.overstretched";
         public const string Name = "Overstretched";
-        public const string Version = "2.0.1";
+        public const string Version = "2.1.0";
 
         internal static ManualLogSource Log;
 
